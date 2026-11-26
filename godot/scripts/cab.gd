@@ -307,7 +307,10 @@ func _build_eng(root: Control) -> void:
 	_rect(root, Vector2(0, 262), Vector2(512, 2), Color(0.3, 0.35, 0.45))
 	ui["e_air1"] = _lbl(root, Vector2(12, 270), 22, Color(0.75, 0.9, 1), "")
 	ui["e_air2"] = _lbl(root, Vector2(12, 300), 22, Color(0.75, 0.9, 1), "")
-	ui["e_flags"] = _lbl(root, Vector2(12, 336), 24, Color(1, 0.4, 0.3), "")
+	ui["e_flags"] = _lbl(root, Vector2(12, 336), 22, Color(1, 0.4, 0.3), "")
+	ui["e_consist"] = _lbl(root, Vector2(16, 182), 15, Color(0.7, 0.8, 0.9), "")
+	ui["e_dpu"] = _lbl(root, Vector2(16, 204), 15, Color(0.6, 1, 0.65), "")
+	ui["e_counter"] = _lbl(root, Vector2(16, 226), 17, Color(1, 0.85, 0.3), "")
 
 func _build_ptc(root: Control) -> void:
 	_rect(root, Vector2(0, 0), Vector2(512, 36), Color(0.05, 0.35, 0.15))
@@ -341,6 +344,7 @@ func _build_ptc(root: Control) -> void:
 		var dist := _lbl(root, Vector2(390, 208 + k * 26), 19, Color(1, 0.85, 0.4), "")
 		ui["p_rows"].append([row, dist])
 	ui["p_warn"] = _lbl(root, Vector2(300, 42), 18, Color(1, 0.35, 0.3), "")
+	ui["p_train"] = _lbl(root, Vector2(10, 362), 15, Color(0.6, 0.8, 0.65), "")
 
 # ================================================================ build
 var has_db: bool = true
@@ -1027,9 +1031,13 @@ func update(s: Dictionary) -> void:
 		ui["e_speed"].text = str(mph)
 		ui["e_lever"].text = s["lever_name"]
 		ui["e_te"].text = "%d kN" % int(s["te_kn"])
-		ui["e_te_bar"].size.x = 296.0 * clampf(s["te_kn"] / 430.0, 0.0, 1.0)
+		ui["e_te_bar"].size.x = 296.0 * clampf(s["te_kn"] / maxf(1.0, s["te_max_kn"]), 0.0, 1.0)
 		ui["e_db"].text = "%d kN" % int(s["db_kn"])
-		ui["e_db_bar"].size.x = 296.0 * clampf(s["db_kn"] / 300.0, 0.0, 1.0)
+		ui["e_db_bar"].size.x = 296.0 * clampf(s["db_kn"] / maxf(1.0, s["db_max_kn"]), 0.0, 1.0)
+		ui["e_consist"].text = s["consist"]
+		ui["e_dpu"].text = "" if s["dpu"] == "none" else "DPU %s: SYNC" % str(s["dpu"]).to_upper()
+		var cm: int = s["counter"]
+		ui["e_counter"].text = "" if cm == 0 else ("REAR CLEARS %s FT" % _commas(s["counter_ft"]) if (cm == 1 and s["counter_ft"] > 0) else ("REAR CLEAR" if cm == 1 else "COUNT %s FT" % _commas(s["counter_ft"])))
 		ui["e_air1"].text = "EQ RES %d   BRK PIPE %d   MAIN RES 140" % [int(s["er"]), int(s["bp"])]
 		ui["e_air2"].text = "BRK CYL %d   LOCO CYL %d   FLOW %d" % [int(s["bc"]), int(s["lbc"]), int(s["flow"])]
 		var flags := ""
@@ -1076,4 +1084,5 @@ func update(s: Dictionary) -> void:
 		else:
 			rows[k][0].text = ""
 			rows[k][1].text = ""
-	ui["p_warn"].text = "OVERSPEED" if mph > int(s["limit"]) + 2 else ""
+	ui["p_warn"].text = "OVERSPEED" if mph > int(s["limit"]) + 2 else ("REAR ON TURNOUT 25" if s["rear_turnout"] else "")
+	ui["p_train"].text = "TRAIN " + str(s["consist"])

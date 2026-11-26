@@ -23,8 +23,28 @@ const LINE_RANGE := 160.0    # must be stopped within this many metres to line a
 const BEHIND_KEEP := 450.0
 const AHEAD_BUILD := 1600.0
 const AHEAD_EVENTS := 2600.0
-# train physics (from v11): ~1,250 t train, 430 kN tractive effort, 2.4 MW at the rail, 300 kN dynamic brake
-const MASS := 1.25e6
+# ---------------------------------------------------------------- train consist
+# per-unit figures live in LOCOS; the consist sets car count, loading and power.
+const CAR_T_LOADED := 120.0     # tonnes per loaded car
+const CAR_T_EMPTY := 30.0       # tonnes per empty car
+const CAR_LEN_M := 18.3         # ~60 ft average car over the couplers
+const LOCO_T := {"modern": 195.0, "sd70ace": 192.0, "classic": 113.0, "classic_lhf": 113.0}
+const LOCO_LEN_M := {"modern": 22.3, "sd70ace": 22.6, "classic": 18.0, "classic_lhf": 18.0}
+const LOAD_KINDS := ["loaded", "mixed", "empty"]
+const DPU_KINDS := ["none", "mid", "rear"]
+var consist := {"cars": 40, "load": "loaded", "units": 2, "dpu": "none"}
+var MASS := 1.25e6              # kg, whole train
+var train_len := 320.0          # m, nose to rear car
+var tons := 1250
+var car_brake_f := 9.0e5        # N from car brakes at full service (64 psi)
+var loco_brake_f := 1.75e5      # N from locomotive brake cylinders at 45 psi
+var aero_k := 275.0             # N per (m/s)^2
+var roll_a := 0.012             # m/s^2 rolling resistance
+var bp_k := 1.0                 # brake pipe propagation factor (long trains are slower)
+var restrict_until := -1.0      # front_d where the rear clears the last diverging turnout
+var restrict_timer := 0.0
+var counter_mode := 0           # 0 off, 1 rear-clear countdown, 2 count up
+var counter_d0 := 0.0
 const LOCOS := {
 	"modern": {"te": 430e3, "p": 2.4e6, "db": 300e3, "split": false, "brake": "CCB", "name": "ES44AC"},
 	"sd70ace": {"te": 425e3, "p": 2.35e6, "db": 300e3, "split": true, "brake": "CCB", "name": "SD70ACe"},
@@ -128,6 +148,7 @@ var rng := RandomNumberGenerator.new()
 var shot_times: Array = []
 var shot_dir: String = ""
 var zoom_times: Array = []
+var consist_override: Dictionary = {}
 var debug_look := Vector2(INF, 0)   # --look=yaw,pitch holds the view for screenshots
 var jump_to: float = -1.0
 var jump_xing: float = -1.0
@@ -175,6 +196,9 @@ func _ready() -> void:
 		elif a.begins_with("--shot-times="):
 			for t in a.substr(13).split(","):
 				shot_times.append(float(t))
+		elif a.begins_with("--consist="):
+			var cs := a.substr(10).split(",")
+			consist_override = {"cars": int(cs[0]), "load": cs[1], "units": int(cs[2]), "dpu": cs[3] if cs.size() > 3 else "none"}
 		elif a.begins_with("--look="):
 			var lk := a.substr(7).split(",")
 			debug_look = Vector2(float(lk[0]), float(lk[1]))
@@ -193,6 +217,8 @@ func _ready() -> void:
 	_load_best()
 	if loco_override != "":
 		loco_model = loco_override
+	if not consist_override.is_empty():
+		consist = consist_override
 	_make_cab()
 	snd = preload("res://scripts/sound.gd").new()
 	add_child(snd)
@@ -203,7 +229,7 @@ func _ready() -> void:
 	hud.game = self
 	add_child(hud)
 	reset_world()
-	if autopilot != "" or shot_dir != "":
+	if autopilot != "" or (shot_dir != "" and not OS.get_cmdline_user_args().has("--menu")):
 		start_game()
 	if jump_xing >= 0.0:
 		var guard := 0
@@ -328,11 +354,81 @@ func _apply_loco_spec() -> void:
 	if not LOCOS.has(loco_model):
 		loco_model = "modern"
 	var sp: Dictionary = LOCOS[loco_model]
-	TE_MAX = sp["te"]
-	P_MAX = sp["p"]
-	DB_MAX = sp["db"]
 	split_db = sp["split"]
 	has_db = classic_db if loco_model.begins_with("classic") else true
+	_apply_consist()
+
+func powered_units() -> int:
+	return int(consist["units"]) + (0 if consist["dpu"] == "none" else 1)
+
+## Turn the consist settings into mass, length, forces and brake behaviour.
+func _apply_consist() -> void:
+	var sp: Dictionary = LOCOS[loco_model]
+	var n: int = consist["cars"]
+	var loaded := n
+	if consist["load"] == "empty":
+		loaded = 0
+	elif consist["load"] == "mixed":
+		loaded = n / 2
+	var empty := n - loaded
+	var units := powered_units()
+	var lt: float = LOCO_T[loco_model]
+	var t := loaded * CAR_T_LOADED + empty * CAR_T_EMPTY + units * lt
+	tons = int(t)
+	MASS = t * 1000.0
+	train_len = n * CAR_LEN_M + units * float(LOCO_LEN_M[loco_model])
+	TE_MAX = float(sp["te"]) * units
+	P_MAX = float(sp["p"]) * units
+	DB_MAX = float(sp["db"]) * units
+	# car brakes are rigged for the empty weight, so empties stop much harder per ton
+	car_brake_f = loaded * CAR_T_LOADED * 1000.0 * 0.6 + empty * CAR_T_EMPTY * 1000.0 * 0.95
+	loco_brake_f = units * lt * 1000.0 * 0.9
+	aero_k = 30.0 + 4.0 * n + 25.0 * units
+	roll_a = 0.010 + 0.006 * (float(empty) / maxf(1.0, float(n)))
+	# a DPU sends brake pipe changes from its own end too, roughly halving the run
+	var eff := train_len * (0.5 if consist["dpu"] != "none" else 1.0)
+	bp_k = clampf(600.0 / maxf(eff, 100.0), 0.3, 1.4)
+
+## Full-service braking deceleration of the whole train (m/s^2).
+func service_decel() -> float:
+	return (car_brake_f + loco_brake_f) / MASS
+
+## Distance needed to stop from v with a full service, including brake pipe lag.
+func stop_distance(v: float) -> float:
+	var lag := 6.0 + 7.0 * (1.0 / bp_k - 1.0)
+	return v * v / (2.0 * service_decel() * 0.9) + v * lag
+
+func set_consist(key: String, value) -> void:
+	consist[key] = value
+	consist["cars"] = clampi(int(consist["cars"]), 5, 150)
+	consist["units"] = clampi(int(consist["units"]), 1, 4)
+	_apply_consist()
+	_save_best()
+	if not running:
+		reset_world()
+
+func consist_text() -> String:
+	var dpu: String = consist["dpu"]
+	return "%d cars %s  -  %d unit%s%s  -  %s t  -  %s ft" % [consist["cars"], str(consist["load"]).to_upper(), consist["units"],
+		"" if int(consist["units"]) == 1 else "s", "" if dpu == "none" else " + DPU " + dpu.to_upper(), _commas(tons), _commas(int(train_len * 3.281))]
+
+func cycle_counter() -> void:
+	counter_mode = (counter_mode + 1) % 3
+	counter_d0 = front_d
+	if counter_mode == 1:
+		hud.toast("Counter set: %s ft to rear clearing" % _commas(int(train_len * 3.281)))
+	elif counter_mode == 2:
+		hud.toast("Counter reset: counting up from 0 ft")
+	else:
+		hud.toast("Counter off")
+
+## Counter readout in feet (countdown to the rear clearing, or distance run).
+func counter_ft() -> int:
+	if counter_mode == 1:
+		return int(maxf(0.0, train_len - (front_d - counter_d0)) * 3.281)
+	if counter_mode == 2:
+		return int((front_d - counter_d0) * 3.281)
+	return 0
 
 func _build_cab_model() -> void:
 	_apply_loco_spec()
@@ -430,6 +526,9 @@ func reset_world() -> void:
 	lining_timer = 0.0
 	spur_stop_timer = 0.0
 	overspeed_timer = 0.0
+	restrict_until = -1.0
+	restrict_timer = 0.0
+	counter_mode = 0
 	zoomed = false
 	aim_sw = null
 	recentre = false
@@ -685,6 +784,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				look_yaw = 0.0
 				look_pitch = -0.05
 				aim_sw = null
+			KEY_F:
+				cycle_counter()
 			KEY_R:
 				if game_over:
 					restart()
@@ -733,7 +834,7 @@ func _process(delta: float) -> void:
 	if running and not game_over:
 		_update_train(delta)
 	_stream()
-	xings.update(delta, front_d, speed, horn and running, 320.0, time_s)
+	xings.update(delta, front_d, speed, horn and running, train_len, time_s)
 	_place_cab(delta)
 	_update_camera(delta)
 	if xing_cam and not xings.list.is_empty():
@@ -754,7 +855,10 @@ func _process(delta: float) -> void:
 		"lbc": lbc_psi, "te_kn": te_kn, "db_kn": DB_MAX * dyn / 1000.0, "flow": maxf(0.0, (90.0 - bp_psi) * (1.0 if auto_h < 0.03 else 0.2)),
 		"alert": running and alert_t > ALERT_WARN, "sand": sand, "bell": bell, "lever_name": lever_name(),
 		"next_ft": nft, "next_kind": nkind, "next_txt": ntext, "ahead": ptc_ahead(), "mp": front_d / 1609.34,
-		"model": LOCOS[loco_model]["name"]})
+		"model": LOCOS[loco_model]["name"], "te_max_kn": TE_MAX / 1000.0, "db_max_kn": DB_MAX / 1000.0,
+		"consist": "%d CARS  %s T  %s FT" % [consist["cars"], _commas(tons), _commas(int(train_len * 3.281))],
+		"dpu": consist["dpu"], "counter": counter_mode, "counter_ft": counter_ft(),
+		"rear_turnout": rear_on_turnout()})
 	_update_sound(delta)
 	hud.refresh()
 	if shot_dir != "":
@@ -773,9 +877,9 @@ func _update_train(delta: float) -> void:
 	# --- automatic brake: equalizing reservoir -> brake pipe -> car cylinders (v11 rates)
 	er_psi = _approach(er_psi, _er_target(auto_h), 5.0, 7.0, delta)
 	if emergency:
-		bp_psi = _approach(bp_psi, 0.0, 0.0, 70.0, delta)
+		bp_psi = _approach(bp_psi, 0.0, 0.0, 70.0 * clampf(bp_k, 0.6, 1.2), delta)
 	else:
-		bp_psi = _approach(bp_psi, er_psi, 2.2, 4.5, delta)
+		bp_psi = _approach(bp_psi, er_psi, 2.2 * bp_k, 4.5 * bp_k, delta)
 	var red := 90.0 - bp_psi
 	var bct := 77.0 if emergency else (0.0 if red < 5.0 else minf(64.0, red * 2.5))
 	bc_psi = _approach(bc_psi, bct, 8.0, 3.2, delta)
@@ -798,8 +902,8 @@ func _update_train(delta: float) -> void:
 	var f_trac := minf(TE_MAX * power, P_MAX * power / maxf(v, 1.5)) * (1.1 if sand and v < 6.0 else 1.0)
 	var db_shape := v / 4.0 if v < 4.0 else (1.0 if v < 11.0 else 11.0 / v)
 	var a_db := DB_MAX * dyn * db_shape / MASS
-	var a_br := bc_psi / 64.0 * 0.72 + lbc_psi / 45.0 * 0.14
-	var a_res := 0.012 + 0.00022 * v * v
+	var a_br := (bc_psi / 64.0 * car_brake_f + lbc_psi / 45.0 * loco_brake_f) / MASS
+	var a_res := roll_a + aero_k * v * v / MASS
 	var a := f_trac / MASS - a_br - a_res - a_db
 	if lining_sw != null:
 		a = minf(a, -2.5)
@@ -836,6 +940,15 @@ func _update_train(delta: float) -> void:
 			_strike("OVERSPEED", "Track speed is %d MPH." % line_max())
 	else:
 		overspeed_timer = maxf(0.0, overspeed_timer - delta)
+	# the rear of the train is still on a diverging turnout until it clears
+	if front_d < restrict_until and mph > DIV_LIMIT_MPH + 5.0:
+		restrict_timer += delta
+		if restrict_timer > 3.0:
+			restrict_timer = 0.0
+			restrict_until = -1.0
+			_strike("OVERSPEED ON TURNOUT", "Hold 25 MPH until the rear of the train clears the turnout.")
+	else:
+		restrict_timer = maxf(0.0, restrict_timer - delta)
 	# --- standing cars on a spur
 	if route != null and route.kind == "spur_facing":
 		if front_d >= route.car_d:
@@ -952,6 +1065,7 @@ func _pass_switch(sw) -> void:
 			return
 		if div:
 			route = ev
+			_restrict_from(sw.d)
 		if ev.kind == "siding":
 			if div == ev.required_siding:
 				_reward(sw, div)
@@ -973,7 +1087,16 @@ func _pass_switch(sw) -> void:
 			return
 		if on_div:
 			route = null
+			_restrict_from(sw.d)
 		_reward(sw, on_div)
+
+func _restrict_from(d: float) -> void:
+	restrict_until = d + train_len
+	restrict_timer = 0.0
+
+## True while the rear of the train is still on a diverging turnout.
+func rear_on_turnout() -> bool:
+	return front_d < restrict_until
 
 func _reward(sw, expected_rev: bool) -> void:
 	var pts := 150.0 if sw.facing else 100.0
@@ -1022,7 +1145,7 @@ func ptc_ahead() -> Array:
 				var t := ""
 				if ev.kind == "siding":
 					var sft := int((ev.d_out - ev.d_in) * 3.281)
-					t = ("%s SDG  %s FT" % [ev.name.to_upper(), _commas(sft)]) if sw.facing else ("%s SDG END" % ev.name.to_upper())
+					t = ("%s SDG %s FT %s" % [ev.name.to_upper(), _commas(sft), "FITS" if siding_fits(ev) else "NO FIT"]) if sw.facing else ("%s SDG END" % ev.name.to_upper())
 				elif ev.kind == "spur_facing":
 					t = "SPUR %s" % (ev.industry[0].to_upper() if not ev.industry.is_empty() else "")
 				else:
@@ -1038,6 +1161,13 @@ func ptc_ahead() -> Array:
 		mp += 1.0
 	items.sort_custom(func(a, b): return a[0] < b[0])
 	return items
+
+## Clearance length of a siding (between the fouling points) against our train.
+func siding_clear_m(ev) -> float:
+	return ev.d_out - ev.d_in - 60.0
+
+func siding_fits(ev) -> bool:
+	return train_len <= siding_clear_m(ev)
 
 func _commas(n: int) -> String:
 	var t := str(n)
@@ -1082,6 +1212,11 @@ func _load_best() -> void:
 		loco_model = str(cf.get_value("settings", "loco", "modern"))
 		classic_db = bool(cf.get_value("settings", "classic_db", false))
 		art.quality = int(cf.get_value("settings", "quality", art.quality))
+		var c = cf.get_value("settings", "consist", null)
+		if c is Dictionary:
+			for k in consist.keys():
+				if c.has(k):
+					consist[k] = c[k]
 
 func _save_best() -> void:
 	var cf := ConfigFile.new()
@@ -1089,6 +1224,7 @@ func _save_best() -> void:
 	cf.set_value("settings", "loco", loco_model)
 	cf.set_value("settings", "classic_db", classic_db)
 	cf.set_value("settings", "quality", art.quality)
+	cf.set_value("settings", "consist", consist)
 	cf.save("user://save.cfg")
 
 func yardmaster_info() -> Array:
@@ -1106,6 +1242,8 @@ func yardmaster_info() -> Array:
 		if ev.kind == "siding":
 			if ev.required_siding:
 				ym = "Take the SIDING at %s (%s). Diverging limit 25 MPH." % [ev.name, side_txt]
+			elif not siding_fits(ev):
+				ym = "Hold the MAIN at %s - your train won't fit the %s ft siding." % [ev.name, _commas(int(siding_clear_m(ev) * 3.281))]
 			else:
 				ym = "Hold the MAIN at %s (siding on the %s)." % [ev.name, side_txt]
 		else:
@@ -1217,9 +1355,9 @@ func _gen_event() -> void:
 	if r < 0.45:
 		ev.kind = "siding"
 		ev.d_in = ev.start
-		ev.d_out = ev.d_in + 2.0 * TL + rng.randf_range(380.0, 600.0)
+		ev.d_out = ev.d_in + 2.0 * TL + rng.randf_range(1000.0, 2900.0)
 		ev.end = ev.d_out
-		ev.required_siding = rng.randf() < 0.45
+		ev.required_siding = rng.randf() < 0.45 and siding_fits(ev)
 		_add_switch(ev, ev.d_in, true, ev.required_siding, p_wrong, p_lie)
 		_add_switch(ev, ev.d_out, false, ev.required_siding, p_wrong * 0.8, p_lie)
 	elif r < 0.75:
@@ -1242,7 +1380,7 @@ func _gen_event() -> void:
 		joints.append([sw.d + (22.0 if sw.facing else -22.0), true])   # frog
 	# leave at least a full-service stopping distance (plus reaction room) at track speed
 	var v: float = float(mini(60, 40 + 5 * int(ev.end / 2500.0))) / MPH
-	var stop_room: float = v * v / (2.0 * 0.62) + v * 8.0 + 250.0
+	var stop_room: float = stop_distance(v) + 250.0
 	next_event_d = ev.end + maxf(lerpf(650.0, 300.0, k), stop_room) + rng.randf_range(0.0, 320.0)
 
 func _add_switch(ev, d: float, facing: bool, required: bool, p_wrong: float, p_lie: float) -> void:
@@ -1582,7 +1720,7 @@ func _autopilot(delta: float) -> void:
 		auto_h = 0.0
 		return
 	var desired := float(line_max()) / MPH
-	if route != null:
+	if route != null or rear_on_turnout():
 		desired = 20.0 / MPH
 	var sw = next_switch()
 	if sw != null:
@@ -1590,13 +1728,13 @@ func _autopilot(delta: float) -> void:
 		var need_rev := expected_reversed(sw)
 		if sw.reversed != need_rev:
 			if lining_sw == null:
-				var stop_d := speed * speed / (2.0 * 0.62) + speed * 8.0 + 60.0
+				var stop_d := stop_distance(speed) + 60.0
 				if dist < stop_d:
 					desired = 0.0
 				if speed < 0.3 and dist <= LINE_RANGE:
 					line_switch()
 		elif need_rev:
-			var slow_d := (speed * speed - 64.0) / (2.0 * 0.55) + speed * 8.0 + 120.0
+			var slow_d := (speed * speed - 64.0) / (2.0 * service_decel() * 0.8) + speed * 8.0 + 150.0
 			if dist < maxf(slow_d, 150.0):
 				desired = minf(desired, 20.0 / MPH)
 	_touch()

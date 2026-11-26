@@ -38,6 +38,10 @@ var ym_panel: PanelContainer
 var loco_btns: Array = []
 var q_btn_start: Button
 var q_btn_pause: Button
+var counter_lbl: Label
+var btn_counter: Button
+var consist_lbl: Label
+var consist_btns: Dictionary = {}
 
 func _upd_q() -> void:
 	for b in [q_btn_start, q_btn_pause]:
@@ -123,9 +127,10 @@ func _build_gauges() -> void:
 	air_lbl = _label(18, Color(0.75, 0.9, 1.0))
 	force_lbl = _label(18, Color(0.85, 0.95, 0.8))
 	alert_lbl = _label(22, Color(1, 0.35, 0.3))
+	counter_lbl = _label(18, Color(1, 0.85, 0.3))
 	alert_lbl.text = "ALERTER - touch a control!"
 	alert_lbl.visible = false
-	for l in [speed_lbl, limit_lbl, controls_lbl, air_lbl, force_lbl, alert_lbl]:
+	for l in [speed_lbl, limit_lbl, controls_lbl, air_lbl, force_lbl, counter_lbl, alert_lbl]:
 		v.add_child(l)
 	root.add_child(p)
 
@@ -276,6 +281,8 @@ func _build_controls() -> void:
 	btn_zoom = _button("ZOOM\nSWITCH", Vector2(150, 84), func(): game.toggle_zoom(), Color(0.15, 0.25, 0.4, 0.9), 22)
 	lv.add_child(btn_zoom)
 	lv.add_child(_button("LOOK\nAHEAD", Vector2(150, 70), func(): _look_ahead(), Color(0.15, 0.25, 0.4, 0.9), 20))
+	btn_counter = _button("COUNTER", Vector2(150, 56), func(): game.cycle_counter(), Color(0.2, 0.3, 0.25, 0.9), 18)
+	lv.add_child(btn_counter)
 	var al := _button("ALERTER", Vector2(150, 64), func(): game.alerter_reset(), Color(0.85, 0.7, 0.1, 0.95), 20)
 	al.add_theme_color_override("font_color", Color(0.1, 0.1, 0.1))
 	lv.add_child(al)
@@ -395,10 +402,10 @@ func _build_start() -> void:
 		+ "- Targets can be knocked wrong. ZOOM and check which point is closed.\n" \
 		+ "- If a switch is lined wrong, stop within 500 ft and press LINE SWITCH.\n" \
 		+ "- Facing point wrong = wrong route or a wreck. Trailing point wrong = you run through it.\n" \
-		+ "- Diverging route limit 25 MPH. Three strikes and you're done.\n" \
-		+ "- This is a heavy train: plan your stops. Dynamic brake (pull the throttle below idle) holds speed; air stops you.\n\n" \
-		+ "PC: W/S throttle & dynamic, D/A automatic brake, ] / [ independent, B bail, Space emergency,\n" \
-		+ "     H horn (hold), G bell, X sand, E line switch, Z zoom, drag the mouse to look.\n" \
+		+ "- Diverging limit 25 MPH until the REAR clears the turnout - use the COUNTER. Three strikes and you're out.\n" \
+		+ "- Tonnage and length matter: heavy trains are slow to start and slow to stop. Plan ahead.\n" \
+		+ "PC: W/S throttle & dynamic, D/A auto brake, ]/[ independent, B bail, Space emergency, H horn, G bell,\n" \
+		+ "     X sand, E line switch, Z zoom, F footage counter, drag the mouse to look.\n" \
 		+ "Phone: drag the three levers, hold HORN, drag the view to look, pinch to zoom."
 	v.add_child(how)
 	best_start_lbl = _label(22, Color(0.7, 1, 0.7))
@@ -416,6 +423,22 @@ func _build_start() -> void:
 		loco_btns.append(lb)
 		pick.add_child(lb)
 	v.add_child(pick)
+	var crow := HBoxContainer.new()
+	crow.alignment = BoxContainer.ALIGNMENT_CENTER
+	crow.add_theme_constant_override("separation", 8)
+	var cc := Color(0.18, 0.24, 0.2, 0.95)
+	crow.add_child(_button("-10 CARS", Vector2(110, 40), func(): game.set_consist("cars", int(game.consist["cars"]) - 10); _upd_consist(), cc, 15))
+	crow.add_child(_button("+10 CARS", Vector2(110, 40), func(): game.set_consist("cars", int(game.consist["cars"]) + 10); _upd_consist(), cc, 15))
+	consist_btns["load"] = _button("", Vector2(150, 40), func(): _cycle_consist("load", game.LOAD_KINDS), cc, 15)
+	consist_btns["units"] = _button("", Vector2(130, 40), func(): game.set_consist("units", int(game.consist["units"]) % 4 + 1); _upd_consist(), cc, 15)
+	consist_btns["dpu"] = _button("", Vector2(130, 40), func(): _cycle_consist("dpu", game.DPU_KINDS), cc, 15)
+	for k in ["load", "units", "dpu"]:
+		crow.add_child(consist_btns[k])
+	v.add_child(crow)
+	consist_lbl = _label(17, Color(0.75, 1, 0.8))
+	consist_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(consist_lbl)
+	_upd_consist()
 	db_btn = _button("", Vector2(360, 40), func(): game.set_classic_db(not game.classic_db); _update_db_btn(), Color(0.2, 0.2, 0.24, 0.95), 15)
 	db_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(db_btn)
@@ -427,6 +450,20 @@ func _build_start() -> void:
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
 
+func _cycle_consist(key: String, kinds: Array) -> void:
+	var i := kinds.find(game.consist[key])
+	game.set_consist(key, kinds[(i + 1) % kinds.size()])
+	_upd_consist()
+
+func _upd_consist() -> void:
+	if consist_lbl == null:
+		return
+	var c: Dictionary = game.consist
+	consist_btns["load"].text = str(c["load"]).to_upper()
+	consist_btns["units"].text = "%d UNIT%s" % [c["units"], "" if int(c["units"]) == 1 else "S"]
+	consist_btns["dpu"].text = "DPU: " + str(c["dpu"]).to_upper()
+	consist_lbl.text = "Train: " + game.consist_text()
+
 func _update_db_btn() -> void:
 	if db_btn == null:
 		return
@@ -436,6 +473,7 @@ func _update_db_btn() -> void:
 func _pick_loco(kind: String) -> void:
 	game.set_loco(kind)
 	_update_db_btn()
+	_upd_consist()
 	for lb in loco_btns:
 		var on: bool = lb.get_meta("kind") == kind
 		lb.add_theme_stylebox_override("normal", _style(Color(0.85, 0.55, 0.1, 0.95) if on else Color(0.15, 0.22, 0.35, 0.95), 12, Color(1, 1, 1, 0.5 if on else 0.25)))
@@ -547,6 +585,20 @@ func refresh() -> void:
 	btn_line.disabled = lining
 	btn_line.text = "LINING..." if lining else "LINE SWITCH"
 	btn_zoom.text = "ZOOM\nOUT" if g.zoomed else "ZOOM\nSWITCH"
+	var cm: int = g.counter_mode
+	var cft: int = g.counter_ft()
+	btn_counter.text = ["COUNTER", "COUNT UP", "COUNTER\nOFF"][cm]
+	if cm == 1:
+		counter_lbl.text = ("REAR CLEARS IN %s FT" % g._commas(cft)) if cft > 0 else "REAR CLEAR"
+		counter_lbl.add_theme_color_override("font_color", Color(1, 0.85, 0.3) if cft > 0 else Color(0.5, 1, 0.5))
+	elif cm == 2:
+		counter_lbl.text = "COUNTER %s FT" % g._commas(cft)
+		counter_lbl.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
+	else:
+		counter_lbl.text = "TRAIN %s FT  %s T" % [g._commas(int(g.train_len * 3.281)), g._commas(g.tons)]
+		counter_lbl.add_theme_color_override("font_color", Color(0.75, 0.8, 0.85))
+	if g.rear_on_turnout():
+		counter_lbl.text += "   REAR ON TURNOUT"
 	if toast_t > 0.0:
 		toast_t -= dt
 		toast_lbl.modulate.a = clampf(toast_t / 0.5, 0.0, 1.0)
