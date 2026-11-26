@@ -935,9 +935,6 @@ func _interior_aar(p: Node) -> void:
 	lever_ind = pivot(shelf, Vector3(0, 0.11, 0.15))
 	_lever_shaft(lever_ind, 0.16, false, m["chrome"], 0.024)
 	# alerter + bell/sand buttons
-	var al := cyl(st, 0.03, 0.03, 0.03, m["alerter"], Vector3(fx + 0.01, -0.32, 0.25), 14)
-	al.rotation.z = PI / 2.0
-	_pickable(st, Vector3(fx + 0.01, -0.32, 0.25), 0.07, "alerter")
 	_handset(st, Vector3(0, -0.6, 0.33), Vector3.ZERO, 0.35)
 	# engineer's front desk with two displays (PTC + engine)
 	var desk_y := -0.6
@@ -949,6 +946,10 @@ func _interior_aar(p: Node) -> void:
 	screen(dp, 0.32, 0.24, Vector3(0.21, 0.01, 0.03), Vector3.ZERO, "ptc")
 	quad(dp, 0.3, 0.036, m["fkeys"], Vector3(-0.2, -0.15, 0.025), Vector3.ZERO)
 	quad(dp, 0.3, 0.036, m["fkeys"], Vector3(0.21, -0.15, 0.025), Vector3.ZERO)
+	# alerter reset: yellow push button on the front edge of the desk, right under the screens
+	box(p, 0.12, 0.03, 0.09, m["cast"], 0.6, desk_y + 0.055, 0.46)
+	cyl(p, 0.032, 0.032, 0.03, m["alerter"], Vector3(0.6, desk_y + 0.085, 0.46), 16)
+	_pickable(p, Vector3(0.6, desk_y + 0.085, 0.46), 0.07, "alerter")
 	_bottle(p, Vector3(1.35, desk_y + 0.04, 0.45))
 	quad(p, 0.22, 0.3, m["paper"], Vector3(0.8, desk_y + 0.045, 0.42), Vector3(-PI / 2.0, -0.2, 0))   # track warrant
 	_radio(p, Vector3(1.47, 0.05, 1.8), Vector3(0, -PI / 2.0, 0))
