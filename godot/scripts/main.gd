@@ -100,6 +100,8 @@ var cam: Camera3D
 var ground: MeshInstance3D
 var far_ring: MultiMeshInstance3D
 var art = preload("res://scripts/art.gd").new()
+var cab_builder = preload("res://scripts/cab.gd").new()
+var cab_model: Node3D
 var hud
 var mats: Dictionary = {}
 var meshes: Dictionary = {}
@@ -246,18 +248,9 @@ func _make_cab() -> void:
 	cam.far = 3000.0
 	pivot.add_child(cam)
 	cam.current = true
-	var hood_top := EYE_H - 1.35
-	_cab_box(Vector3(2.3, 1.6, 4.2), Vector3(0.0, hood_top - 0.8, -3.1), mats["loco"])          # short hood
-	_cab_box(Vector3(2.32, 0.25, 0.12), Vector3(0.0, hood_top - 0.35, -5.2), mats["yellow"])      # nose stripe
-	_cab_box(Vector3(0.04, 0.04, 4.0), Vector3(1.25, hood_top + 0.35, -3.1), mats["yellow"])     # handrails
-	_cab_box(Vector3(0.04, 0.04, 4.0), Vector3(-1.25, hood_top + 0.35, -3.1), mats["yellow"])
-	_cab_box(Vector3(0.05, 1.6, 0.06), Vector3(-0.05, EYE_H, -0.95), mats["loco"])                 # windshield posts
-	_cab_box(Vector3(0.1, 1.6, 0.1), Vector3(1.55, EYE_H, -0.85), mats["loco"])
-	_cab_box(Vector3(0.1, 1.6, 0.1), Vector3(-1.55, EYE_H, -0.85), mats["loco"])
-	_cab_box(Vector3(3.2, 0.3, 0.4), Vector3(0.0, EYE_H + 0.85, -0.75), mats["loco"])          # roof edge
-	_cab_box(Vector3(3.2, 0.9, 0.6), Vector3(0.0, EYE_H - 1.05, -0.6), mats["dark"])             # sill / dash
-	_cab_box(Vector3(0.1, 2.4, 3.0), Vector3(1.55, EYE_H - 0.3, 0.9), mats["loco"])            # side walls
-	_cab_box(Vector3(0.1, 2.4, 3.0), Vector3(-1.55, EYE_H - 0.3, 0.9), mats["loco"])
+	cab_model = cab_builder.build()
+	cab_model.position = Vector3(0.0, EYE_H, -1.08)
+	cab.add_child(cab_model)
 
 func _cab_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := _box(cab, size, pos, mat)
@@ -461,6 +454,9 @@ func _process(delta: float) -> void:
 	_stream()
 	_place_cab(delta)
 	_update_camera(delta)
+	var nsw = next_switch()
+	var ntxt := "" if nsw == null else "SW %d FT" % int((nsw.d - front_d) * 3.281)
+	cab_builder.update(throttle, brake, emergency, int(speed * MPH), line_max(), bp_psi, bc_psi, ntxt)
 	hud.refresh()
 	if shot_dir != "":
 		if not zoom_times.is_empty() and time_s >= zoom_times[0]:
