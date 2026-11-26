@@ -1,0 +1,14 @@
+{
+  "name": "A-Line & Yard Switch Simulator",
+  "short_name": "A-Line Rail Sim",
+  "description": "3D US Railroad Cab & Switch Simulator \u2014 Richmond Acca Yard to Rocky Mount A-Line & Endless Yard Challenge.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "categories": [
+    "games",
+    "simulation"
+  ]
+}
