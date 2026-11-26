@@ -72,7 +72,31 @@ func _materials() -> void:
 	m["g_speed"] = _decal("res://textures/gauge_speed.png", Vector2.ONE, Vector2.ZERO, true)
 	m["g_er"] = _decal("res://textures/gauge_air_er.png", Vector2.ONE, Vector2.ZERO, true)
 	m["g_mr"] = _decal("res://textures/gauge_air_mr.png", Vector2.ONE, Vector2.ZERO, true)
-	m["seat"] = _tri("res://textures/seat_worn.png", 1.6, 0.95)
+	m["seat"] = _tri("res://textures/seat_black.png", 2.2, 0.9)
+	m["wall_tan"] = _tri("res://textures/cab_wall_tan.png", 0.5, 0.82, 0.05)
+	m["wall_green"] = _tri("res://textures/cab_wall_green.png", 0.5, 0.82, 0.05)
+	m["stand_brown"] = _tri("res://textures/stand_brown.png", 0.7, 0.62, 0.15)
+	m["stand_green"] = _tri("res://textures/stand_green.png", 0.7, 0.62, 0.15)
+	m["ceil_tan"] = _tri("res://textures/ceiling_tan.png", 0.6, 0.92)
+	m["ceil_green"] = _tri("res://textures/ceiling_green.png", 0.6, 0.92)
+	m["bezel_tan"] = _decal("res://textures/bezel_tan.png", Vector2.ONE, Vector2.ZERO, true)
+	m["bezel_green"] = _decal("res://textures/bezel_green.png", Vector2.ONE, Vector2.ZERO, true)
+	for k in ["bezel_tan", "bezel_green"]:
+		m[k].cull_mode = BaseMaterial3D.CULL_DISABLED
+	m["fkeys"] = _decal("res://textures/fkeys.png")
+	m["hv"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0, 0))
+	m["ebv"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0.5, 0))
+	m["cabsig"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0, 0.5))
+	m["caution"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0.5, 0.5))
+	m["vinyl"] = _mat(Color(0.07, 0.07, 0.075), 0.55)
+	m["stainless"] = _mat(Color(0.72, 0.72, 0.7), 0.32, 0.85)
+	m["ext_red"] = _mat(Color(0.7, 0.08, 0.06), 0.35, 0.1)
+	m["leather"] = _mat(Color(0.62, 0.48, 0.32), 0.85)
+	var bottle := StandardMaterial3D.new()
+	bottle.albedo_color = Color(0.8, 0.9, 1.0, 0.35)
+	bottle.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bottle.roughness = 0.1
+	m["bottle"] = bottle
 	m["grip"] = _tri("res://textures/grip.png", 6.0, 0.55, 0.4)
 	m["porcelain"] = _mat(Color(0.88, 0.88, 0.84), 0.25)
 	m["nose_dark"] = _mat(Color(0.18, 0.17, 0.15), 0.95)
@@ -450,11 +474,16 @@ func _deck_end(p: Node, deck_y: float, z_end: float, w: float, dir_z: float) -> 
 			box(p, 0.55, 0.04, 0.3, m["yellow"], s * (w / 2.0 - 0.35), deck_y - 0.35 - i * 0.38, z_end - dir_z * 0.25)
 
 # ---------------------------------------------------------------- shared cab shell
+var tone := "tan"   # interior paint scheme: "tan" (modern GE/EMD) or "green" (older EMD)
+
 func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, sill_y: float, top_y: float, win_xs: Array, win_w: float, wall: Material, rounded: bool, nose_gap: Vector2 = Vector2.ZERO) -> void:
 	var half_w := w / 2.0
 	box(p, w - 0.08, 0.06, cab_len, m["floor"], 0, floor_y, cab_len / 2.0)
 	box(p, w + 0.08, 0.14, cab_len + 0.2, m["paint"], 0, ceil_y + 0.12, cab_len / 2.0 - 0.05)
-	box(p, w - 0.1, 0.05, cab_len, wall, 0, ceil_y, cab_len / 2.0)
+	box(p, w - 0.1, 0.05, cab_len, m["ceil_" + tone], 0, ceil_y, cab_len / 2.0)
+	for rz in [0.75, 1.55, 2.3]:          # ceiling ribs
+		if rz < cab_len:
+			box(p, w - 0.12, 0.03, 0.06, wall, 0, ceil_y - 0.035, rz)
 	if nose_gap == Vector2.ZERO:
 		box(p, w, sill_y - floor_y, 0.1, wall, 0, (sill_y + floor_y) / 2.0, 0.0)
 	else:
@@ -476,22 +505,21 @@ func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, si
 		if b - a > 0.005:
 			box(p, b - a, top_y - sill_y, 0.1, wall, (a + b) / 2.0, (top_y + sill_y) / 2.0, 0.0)
 	var win_h := top_y - sill_y
+	var wi := 0
 	for x in win_xs:
-		box(p, win_w, 0.03, 0.12, m["rubber"], x, sill_y + 0.015, 0.0)
-		box(p, win_w, 0.03, 0.12, m["rubber"], x, top_y - 0.015, 0.0)
-		box(p, 0.03, win_h, 0.12, m["rubber"], x - win_w / 2.0 + 0.015, (sill_y + top_y) / 2.0, 0.0)
-		box(p, 0.03, win_h, 0.12, m["rubber"], x + win_w / 2.0 - 0.015, (sill_y + top_y) / 2.0, 0.0)
-		if rounded:
-			var c := 0.09
-			for cx in [-1.0, 1.0]:
-				for cy in [-1.0, 1.0]:
-					var corner := box(p, c * 1.4, c * 1.4, 0.1, wall, x + cx * (win_w / 2.0 - c * 0.35), (sill_y + top_y) / 2.0 + cy * (win_h / 2.0 - c * 0.35), 0.0)
-					corner.rotation.z = PI / 4.0
+		_bezel(p, Vector3(x, (sill_y + top_y) / 2.0, 0.052 + wi * 0.003), win_w, win_h, Vector3.ZERO)
 		quad(p, win_w, win_h, m["glass"], Vector3(x, (sill_y + top_y) / 2.0, -0.02), Vector3.ZERO)
-		var wp := pivot(p, Vector3(x - win_w * 0.35, sill_y + 0.04, -0.07), Vector3(0, 0, -1.35))
-		box(wp, 0.02, win_h * 0.62, 0.02, m["black"], 0, win_h * 0.31, 0)
-		box(wp, 0.035, win_h * 0.55, 0.02, m["black"], 0.02, win_h * 0.34, -0.012)
+		# pantograph wiper hanging from above the glass (outside), parked at an angle
+		var side := -1.0 if x < 0.0 else 1.0   # park along the outer edge of each windshield
+		var wp := pivot(p, Vector3(x + side * win_w * 0.4, top_y + 0.02, -0.08), Vector3(0, 0, side * 0.06))
+		box(wp, 0.016, win_h * 0.5, 0.012, m["black"], 0, -win_h * 0.25, 0)
+		box(wp, 0.012, win_h * 0.46, 0.012, m["black"], -side * 0.05, -win_h * 0.23, 0.0)
+		box(wp, 0.07, 0.025, 0.02, m["black"], 0.025, -win_h * 0.5, 0)
+		var blade := box(wp, 0.022, win_h * 0.6, 0.018, m["rubber"], 0.025, -win_h * 0.5, -0.01)
+		blade.rotation.z = 0.12
+		box(p, 0.08, 0.06, 0.06, m["black"], x + side * win_w * 0.4, top_y + 0.02, 0.07)   # motor housing inside
 		wipers.append(wp)
+		wi += 1
 	var side_sill := sill_y + 0.08
 	for s in [-1.0, 1.0]:
 		var sx: float = s * (half_w - 0.05)
@@ -501,31 +529,126 @@ func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, si
 		box(p, 0.1, top_y - side_sill, 0.12, wall, sx, (top_y + side_sill) / 2.0, 0.95)
 		box(p, 0.1, top_y - side_sill, cab_len - 1.65, wall, sx, (top_y + side_sill) / 2.0, 1.65 + (cab_len - 1.65) / 2.0)
 		quad(p, 1.35, top_y - side_sill, m["glass"], Vector3(sx + s * 0.04, (top_y + side_sill) / 2.0, 0.97), Vector3(0, PI / 2.0, 0))
-		box(p, 0.04, 0.03, 1.35, m["rubber"], sx - s * 0.06, side_sill, 0.97)
+		_bezel(p, Vector3(sx - s * 0.055, (top_y + side_sill) / 2.0, 0.97), 1.33, top_y - side_sill, Vector3(0, -s * PI / 2.0, 0))
+		box(p, 0.06, 0.03, 1.2, m["stainless"], sx - s * 0.09, side_sill - 0.02, 0.97)   # window slide track
 	var back_z := cab_len
 	box(p, w - 0.9, ceil_y - floor_y, 0.1, wall, 0.45, (ceil_y + floor_y) / 2.0, back_z)
 	box(p, 0.85, ceil_y - floor_y, 0.06, wall, -half_w + 0.47, (ceil_y + floor_y) / 2.0, back_z + 0.02)
 	box(p, 0.4, 0.55, 0.02, m["rubber"], -half_w + 0.5, 0.05, back_z - 0.02)
 	quad(p, 0.36, 0.5, m["glass"], Vector3(-half_w + 0.5, 0.05, back_z - 0.04), Vector3(0, PI, 0))
 	box(p, 0.05, 0.05, 0.14, m["steel"], -half_w + 0.82, -0.45, back_z - 0.08)
+	_overhead(p, w, ceil_y, top_y, wall)
+	# padded sun visors on swing arms, tucked up under the overhead
+	var vi := 0
 	for vx in win_xs:
-		var visor := box(p, win_w * 0.42, 0.14, 0.015, m["visor"], vx + win_w * 0.22, top_y - 0.05, 0.1)
-		visor.rotation.x = 0.28
-	for dz in [0.9, 1.9]:
-		box(p, 0.3, 0.05, 0.22, m["dome"], 0.1, ceil_y - 0.04, dz)
+		var vp := pivot(p, Vector3(vx + (0.2 if vi == 1 else -0.2), top_y - 0.03, 0.42), Vector3(1.25 if vi == 1 else 1.0, 0, 0))
+		box(vp, 0.5, 0.26, 0.03, m["vinyl"], 0, -0.13, 0)
+		box(vp, 0.46, 0.22, 0.032, m["seat"], 0, -0.13, 0.001)
+		tube(p, Vector3(vx + (0.2 if vi == 1 else -0.2) - 0.27, top_y - 0.03, 0.42), Vector3(vx + (0.2 if vi == 1 else -0.2) - 0.27, top_y + 0.05, 0.42), 0.008, m["steel"])
+		vi += 1
+	for dz in [1.0, 1.9]:
+		box(p, 0.34, 0.06, 0.2, m["black"], 0.1, ceil_y - 0.04, dz)
+		box(p, 0.28, 0.02, 0.15, m["dome"], 0.1, ceil_y - 0.07, dz)
+
+## A painted frame + rubber gasket with rounded corners, sized so its hole matches (w, h).
+func _bezel(p: Node, pos: Vector3, w: float, h: float, rot: Vector3) -> void:
+	var b := 0.125   # border fraction of the texture (64 px of 512)
+	var q := quad(p, w / (1.0 - 2.0 * b), h / (1.0 - 2.0 * b), m["bezel_" + tone], pos, rot)
+	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## The overhead console above the windshields: body + three textured sub-panels
+## (event recorder / unit number + breakers / FRA sticker, fuel readout, radio).
+func _overhead(p: Node, w: float, ceil_y: float, top_y: float, wall: Material) -> void:
+	var bot := top_y - 0.05
+	box(p, w - 0.12, ceil_y - bot, 0.45, wall, 0, (ceil_y + bot) / 2.0, 0.28)
+	var face_h := ceil_y - bot + 0.1
+	var fy := (ceil_y + bot) / 2.0 - 0.05
+	var face := pivot(p, Vector3(0, fy, 0.52), Vector3(0.28, 0, 0))
+	box(face, w - 0.12, face_h, 0.03, wall, 0, 0, -0.015)
+	var tex: Texture2D = load("res://textures/overhead_" + tone + ".png")
+	var px_per_m := 512.0 / face_h
+	var spans := [[0.0, 560.0, -0.95], [560.0, 1330.0, 0.02], [1330.0, 2048.0, 0.98]]
+	for sp in spans:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.roughness = 0.75
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		mat.uv1_scale = Vector3((sp[1] - sp[0]) / 2048.0, 1, 1)
+		mat.uv1_offset = Vector3(sp[0] / 2048.0, 0, 0)
+		var q := quad(face, (sp[1] - sp[0]) / px_per_m, face_h, mat, Vector3(sp[2], 0, 0.002), Vector3.ZERO)
+		q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# small oscillating cab fan in the engineer-side corner
+	var fp := pivot(p, Vector3(w / 2.0 - 0.22, ceil_y - 0.12, 0.75), Vector3(0.3, -0.7, 0))
+	box(fp, 0.24, 0.24, 0.08, m["black"], 0, 0, 0)
+	var fan := cyl(fp, 0.1, 0.1, 0.01, m["fan"], Vector3(0, 0, 0.045), 18)
+	fan.rotation.x = PI / 2.0
+	for gi in 4:
+		var ring := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.025 * (gi + 1) - 0.003
+		tm.outer_radius = 0.025 * (gi + 1)
+		ring.mesh = tm
+		ring.material_override = m["steel"]
+		ring.position = Vector3(0, 0, 0.055)
+		ring.rotation.x = PI / 2.0
+		fp.add_child(ring)
+
+## Wall phone / radio handset in a cradle with a coiled cord hanging down.
+func _handset(p: Node, pos: Vector3, rot: Vector3, cord_len: float = 0.35) -> void:
+	var h := pivot(p, pos, rot)
+	box(h, 0.07, 0.2, 0.05, m["black"], 0, 0, 0)
+	var hs := pivot(h, Vector3(0, 0, 0.045))
+	box(hs, 0.045, 0.2, 0.035, m["vinyl"], 0, 0, 0)
+	box(hs, 0.06, 0.05, 0.045, m["vinyl"], 0, 0.09, 0.008)
+	box(hs, 0.06, 0.05, 0.045, m["vinyl"], 0, -0.09, 0.008)
+	var n := int(cord_len / 0.012)
+	for i in n:
+		var t := float(i) / float(n)
+		ball(h, 0.008, m["black"], Vector3(sin(t * 60.0) * 0.016, -0.12 - t * cord_len, 0.04 + cos(t * 60.0) * 0.016))
+
+func _extinguisher(p: Node, pos: Vector3) -> void:
+	cyl(p, 0.075, 0.075, 0.42, m["ext_red"], pos + Vector3(0, 0.21, 0), 14)
+	ball(p, 0.075, m["ext_red"], pos + Vector3(0, 0.42, 0))
+	box(p, 0.04, 0.06, 0.03, m["black"], pos.x, pos.y + 0.5, pos.z)
+	box(p, 0.1, 0.012, 0.02, m["steel"], pos.x + 0.03, pos.y + 0.54, pos.z)
+	quad(p, 0.08, 0.12, m["paper"], pos + Vector3(0, 0.22, 0.076), Vector3.ZERO)
+
+func _bottle(p: Node, pos: Vector3) -> void:
+	cyl(p, 0.032, 0.032, 0.2, m["bottle"], pos + Vector3(0, 0.1, 0), 12)
+	cyl(p, 0.013, 0.013, 0.025, m["seat_dark"], pos + Vector3(0, 0.215, 0), 8)
 
 func _seat(p: Node, x: float, floor_y: float, z: float, cloth: Material) -> void:
 	var g := pivot(p, Vector3(x, floor_y, z))
-	box(g, 0.34, 0.12, 0.34, m["seat_dark"], 0, 0.06, 0)
-	cyl(g, 0.06, 0.06, 0.42, m["steel"], Vector3(0, 0.3, 0), 10)
-	box(g, 0.56, 0.14, 0.54, cloth, 0, 0.55, 0)
-	box(g, 0.6, 0.06, 0.56, m["seat_dark"], 0, 0.47, 0)
+	# pedestal: floor plate, suspension column with bellows, slide rails
+	box(g, 0.42, 0.03, 0.42, m["steel_dark"], 0, 0.02, 0)
+	cyl(g, 0.09, 0.11, 0.18, m["rubber"], Vector3(0, 0.12, 0), 12)
+	cyl(g, 0.055, 0.055, 0.22, m["steel"], Vector3(0, 0.3, 0), 10)
+	box(g, 0.4, 0.04, 0.46, m["steel_dark"], 0, 0.42, 0)
+	box(g, 0.06, 0.03, 0.08, m["steel"], 0.22, 0.42, -0.2)        # adjust lever
+	# cushion with rolled front edge and side bolsters
+	box(g, 0.54, 0.12, 0.5, cloth, 0, 0.5, 0.01)
+	var roll := cyl(g, 0.065, 0.065, 0.54, cloth, Vector3(0, 0.505, -0.235), 12)
+	roll.rotation.z = PI / 2.0
 	for s in [-1.0, 1.0]:
-		box(g, 0.08, 0.06, 0.42, m["seat_dark"], s * 0.32, 0.78, 0.02)
-		box(g, 0.05, 0.2, 0.05, m["seat_dark"], s * 0.32, 0.68, 0.2)
-	var back := box(g, 0.52, 0.72, 0.12, cloth, 0, 0.98, 0.27)
-	back.rotation.x = -0.12
-	box(g, 0.34, 0.2, 0.1, cloth, 0, 1.44, 0.33)
+		var bol := cyl(g, 0.05, 0.05, 0.46, m["vinyl"], Vector3(s * 0.26, 0.56, 0.02), 10)
+		bol.rotation.x = PI / 2.0
+	# backrest (reclined), lumbar bolsters, headrest on posts
+	var bk := pivot(g, Vector3(0, 0.56, 0.25), Vector3(-0.16, 0, 0))
+	box(bk, 0.52, 0.68, 0.13, cloth, 0, 0.36, 0)
+	box(bk, 0.56, 0.7, 0.08, m["vinyl"], 0, 0.36, 0.06)
+	for s in [-1.0, 1.0]:
+		var lb := cyl(bk, 0.05, 0.05, 0.6, m["vinyl"], Vector3(s * 0.25, 0.36, -0.04), 10)
+		lb.rotation.z = 0.0
+	var top := cyl(bk, 0.065, 0.065, 0.52, cloth, Vector3(0, 0.71, 0), 12)
+	top.rotation.z = PI / 2.0
+	for s in [-1.0, 1.0]:
+		cyl(bk, 0.008, 0.008, 0.12, m["steel"], Vector3(s * 0.08, 0.8, 0.0), 6)
+	box(bk, 0.32, 0.16, 0.1, cloth, 0, 0.9, 0.0)
+	# padded armrests on hinged posts
+	for s in [-1.0, 1.0]:
+		var arm := cyl(g, 0.035, 0.035, 0.36, m["vinyl"], Vector3(s * 0.33, 0.76, 0.0), 10)
+		arm.rotation.x = PI / 2.0
+		box(g, 0.03, 0.22, 0.04, m["steel_dark"], s * 0.33, 0.66, 0.16)
 
 func _radio(p: Node, pos: Vector3, rot: Vector3) -> void:
 	var r := pivot(p, pos, rot)
@@ -545,16 +668,21 @@ func _interior_modern(p: Node) -> void:
 	var floor_y := -1.35
 	var sill_y := -0.42
 	var top_y := 0.45
-	_shell(p, w, 2.75, floor_y, 0.68, sill_y, top_y, [-0.76, 0.76], 1.36, m["wall"], false)
+	tone = "tan"
+	_shell(p, w, 2.75, floor_y, 0.68, sill_y, top_y, [-0.76, 0.76], 1.36, m["wall_tan"], false)
 	var desk_y := -0.66
 	# engineer's L-shaped desk (right side)
-	box(p, 1.4, desk_y - floor_y, 0.55, m["desk"], 0.82, (desk_y + floor_y) / 2.0, 0.33)
+	box(p, 1.4, desk_y - floor_y, 0.55, m["stand_brown"], 0.82, (desk_y + floor_y) / 2.0, 0.33)
 	box(p, 1.44, 0.04, 0.6, m["console"], 0.82, desk_y + 0.02, 0.33)
-	box(p, 0.38, desk_y - floor_y + 0.05, 0.75, m["desk"], 1.33, (desk_y + floor_y) / 2.0 + 0.025, 0.95)
+	box(p, 0.38, desk_y - floor_y + 0.05, 0.75, m["stand_brown"], 1.33, (desk_y + floor_y) / 2.0 + 0.025, 0.95)
 	box(p, 0.4, 0.04, 0.78, m["console"], 1.33, desk_y + 0.07, 0.95)
 	# slanted instrument panel facing the engineer
 	var panel := pivot(p, Vector3(0.82, desk_y + 0.17, 0.12), Vector3(-0.42, 0, 0))
-	box(panel, 1.42, 0.36, 0.05, m["console"], 0, 0, 0)
+	box(panel, 1.42, 0.36, 0.05, m["stand_brown"], 0, 0, 0)
+	for fx in [-0.44, -0.07]:
+		quad(panel, 0.3, 0.038, m["fkeys"], Vector3(fx, -0.155, 0.028), Vector3.ZERO)
+		for hx in [-0.19, 0.19]:
+			box(panel, 0.018, 0.14, 0.03, m["black"], fx + hx, 0.0, 0.04)     # screen pull handles
 	screen(panel, 0.32, 0.24, Vector3(-0.44, 0.0, 0.03), Vector3.ZERO, "ptc")
 	screen(panel, 0.32, 0.24, Vector3(-0.07, 0.0, 0.03), Vector3.ZERO, "eng")
 	gauge(panel, "g_speed", 0.07, Vector3(0.23, 0.05, 0.03), ["speed"], [Color(1, 1, 1)])
@@ -595,23 +723,28 @@ func _interior_modern(p: Node) -> void:
 	ball(lever_ind, 0.03, m["grip"], Vector3(0, 0.15, 0))
 	quad(p, 0.22, 0.11, m["warn"], Vector3(1.53, desk_y + 0.25, 0.75), Vector3(0, -PI / 2.0, 0))
 	_radio(p, Vector3(1.47, 0.05, 1.75), Vector3(0, -PI / 2.0, 0))
-	# overhead consoles above the windshields
-	for ox in [-0.62, 0.62]:
-		var oc := pivot(p, Vector3(ox, 0.56, 0.62), Vector3(1.05, 0, 0))
-		box(oc, 1.0, 0.22, 0.24, m["wall"], 0, 0, 0)
-		quad(oc, 0.94, 0.2, m["switches"], Vector3(0, 0, 0.125), Vector3.ZERO)
+	_handset(p, Vector3(1.5, -0.58, 1.45), Vector3(0, -PI / 2.0, 0), 0.3)
+	quad(p, 0.24, 0.12, m["cabsig"], Vector3(1.52, -0.75, 1.9), Vector3(0, -PI / 2.0, 0))
+	_bottle(p, Vector3(1.22, desk_y + 0.11, 0.62))
 	# conductor's desk (left) with two screens and paperwork
-	box(p, 1.1, desk_y - floor_y, 0.6, m["desk"], -0.92, (desk_y + floor_y) / 2.0, 0.36)
+	box(p, 1.1, desk_y - floor_y, 0.6, m["stand_brown"], -0.92, (desk_y + floor_y) / 2.0, 0.36)
 	box(p, 1.14, 0.04, 0.64, m["console"], -0.92, desk_y + 0.02, 0.36)
 	var cp := pivot(p, Vector3(-0.92, desk_y + 0.2, 0.14), Vector3(-0.3, 0, 0))
-	box(cp, 0.9, 0.34, 0.12, m["desk"], 0, 0, -0.04)
+	box(cp, 0.9, 0.34, 0.12, m["stand_brown"], 0, 0, -0.04)
+	quad(cp, 0.28, 0.035, m["fkeys"], Vector3(-0.2, -0.145, 0.025), Vector3.ZERO)
+	quad(cp, 0.28, 0.035, m["fkeys"], Vector3(0.18, -0.145, 0.025), Vector3.ZERO)
+	_handset(p, Vector3(-1.5, -0.6, 1.45), Vector3(0, PI / 2.0, 0), 0.3)
+	quad(p, 0.24, 0.12, m["ebv"], Vector3(-1.53, -0.75, 0.75), Vector3(0, PI / 2.0, 0))
+	box(p, 0.12, 0.16, 0.1, m["red"], -1.47, -0.95, 0.75)        # conductor's emergency valve
+	box(p, 0.2, 0.08, 0.14, m["leather"], -0.6, desk_y + 0.06, 0.55)   # work gloves
 	screen(cp, 0.3, 0.22, Vector3(-0.2, 0.0, 0.03), Vector3.ZERO, "ptc")
 	screen(cp, 0.3, 0.22, Vector3(0.18, 0.0, 0.03), Vector3.ZERO, "eng")
 	quad(p, 0.22, 0.3, m["paper"], Vector3(-0.85, desk_y + 0.045, 0.5), Vector3(-PI / 2.0, 0.15, 0))
 	_radio(p, Vector3(-1.45, -0.05, 1.5), Vector3(0, PI / 2.0, 0))
 	quad(p, 0.5, 0.25, m["bulletin"], Vector3(-1.52, 0.1, 2.1), Vector3(0, PI / 2.0, 0))
 	quad(p, 0.22, 0.11, m["fuel"], Vector3(0.6, 0.0, 2.68), Vector3(0, PI, 0))
-	cyl(p, 0.08, 0.08, 0.52, m["red"], Vector3(1.2, -0.95, 2.6), 12)
+	_extinguisher(p, Vector3(1.25, floor_y, 2.55))
+	quad(p, 0.3, 0.15, m["caution"], Vector3(-1.0, 0.1, 2.69), Vector3(0, PI, 0))
 	_seat(p, 0.86, floor_y, 1.25, m["seat"])
 	_seat(p, -0.86, floor_y, 1.25, m["seat"])
 	_seat(p, -0.86, floor_y, 2.1, m["seat"])
@@ -623,12 +756,13 @@ func _interior_classic(p: Node, nose_forward: bool) -> void:
 	var floor_y := -1.35
 	var sill_y := -0.3
 	var top_y := 0.42
-	var beige: Material = m["wall_beige"]
+	tone = "green"
+	var beige: Material = m["wall_green"]
 	var gap := Vector2(0.3, -0.68) if nose_forward else Vector2.ZERO
 	_shell(p, w, 2.6, floor_y, 0.62, sill_y, top_y, [-0.82, 0.82], 0.95, beige, true, gap)
 	# conductor's side: the left front opening is a DOOR out to the nose walkway
 	var dx := -0.82
-	box(p, 0.8, sill_y - floor_y - 0.04, 0.05, m["wall_beige"], dx, (sill_y + floor_y) / 2.0, 0.07)
+	box(p, 0.8, sill_y - floor_y - 0.04, 0.05, beige, dx, (sill_y + floor_y) / 2.0, 0.07)
 	for e in [[0.8, 0.03, dx, top_y - 0.02], [0.8, 0.03, dx, floor_y + 0.04]]:
 		box(p, e[0], e[1], 0.06, m["rubber"], e[2], e[3], 0.07)
 	box(p, 0.03, top_y - floor_y, 0.06, m["rubber"], dx - 0.4, (top_y + floor_y) / 2.0, 0.07)
@@ -653,7 +787,8 @@ func _interior_classic(p: Node, nose_forward: bool) -> void:
 		box(p, 0.25, 0.3, 0.12, m["steel"], -0.3, nf + 0.6, -0.5)                     # paper holder / sink
 	# AAR control stand to the engineer's left
 	var st := pivot(p, Vector3(0.3, 0, 0.62))
-	box(st, 0.36, -0.42 - floor_y, 0.55, beige, 0, (-0.42 + floor_y) / 2.0, 0)
+	box(st, 0.36, -0.42 - floor_y, 0.55, m["stand_green"], 0, (-0.42 + floor_y) / 2.0, 0)
+	quad(st, 0.16, 0.08, m["hv"], Vector3(0.181, -0.85, 0.05), Vector3(0, PI / 2.0, 0))
 	box(st, 0.3, 0.32, 0.5, m["console"], 0.02, -0.25, -0.02)
 	quad(st, 0.48, 0.3, m["switches_beige"], Vector3(0.175, -0.25, -0.02), Vector3(0, PI / 2.0, 0))
 	# gauge housing on top, turned toward the engineer and tilted up
@@ -691,6 +826,14 @@ func _interior_classic(p: Node, nose_forward: bool) -> void:
 	box(pm, 0.06, 0.06, 0.1, m["steel_dark"], 0, 0, -0.05)
 	screen(pm, 0.3, 0.22, Vector3(0, 0, 0.03), Vector3.ZERO, "ptc")
 	_radio(p, Vector3(1.42, 0.05, 1.55), Vector3(0, -PI / 2.0, 0))
+	_handset(st, Vector3(0.19, -0.6, 0.2), Vector3(0, PI / 2.0, 0), 0.3)
+	# conductor's side: stainless desk top, emergency valve, extinguisher
+	box(p, 0.7, 0.04, 0.45, m["stainless"], -1.05, -0.62, 1.0)
+	box(p, 0.66, -0.64 - floor_y, 0.42, m["stand_green"], -1.05, (-0.64 + floor_y) / 2.0, 1.0)
+	quad(p, 0.3, 0.15, m["ebv"], Vector3(-1.05, -0.95, 0.785), Vector3.ZERO)
+	tube(p, Vector3(-0.7, -0.62, 0.78), Vector3(-0.7, -1.3, 0.78), 0.02, m["stainless"])
+	_extinguisher(p, Vector3(1.2, floor_y, 2.35))
+	_bottle(p, Vector3(-1.2, -0.6, 1.05))
 	_seat(p, 0.8, floor_y, 1.3, m["seat"])
 	_seat(p, -0.8, floor_y, 1.4, m["seat"])
 	_mirrors(p, w / 2.0, -0.05)

@@ -127,6 +127,7 @@ var rng := RandomNumberGenerator.new()
 var shot_times: Array = []
 var shot_dir: String = ""
 var zoom_times: Array = []
+var debug_look := Vector2(INF, 0)   # --look=yaw,pitch holds the view for screenshots
 var jump_to: float = -1.0
 var jump_xing: float = -1.0
 var xing_cam: bool = false
@@ -173,6 +174,9 @@ func _ready() -> void:
 		elif a.begins_with("--shot-times="):
 			for t in a.substr(13).split(","):
 				shot_times.append(float(t))
+		elif a.begins_with("--look="):
+			var lk := a.substr(7).split(",")
+			debug_look = Vector2(float(lk[0]), float(lk[1]))
 		elif a.begins_with("--zoom-times="):
 			for t in a.substr(13).split(","):
 				zoom_times.append(float(t))
@@ -1160,6 +1164,9 @@ func _update_camera(delta: float) -> void:
 			look_pitch = lerpf(look_pitch, tp, k)
 		else:
 			aim_sw = null
+	elif debug_look.x != INF:
+		look_yaw = debug_look.x
+		look_pitch = debug_look.y
 	elif recentre:
 		var k2 := 1.0 - exp(-3.0 * delta)
 		look_yaw = lerpf(look_yaw, 0.0, k2)
