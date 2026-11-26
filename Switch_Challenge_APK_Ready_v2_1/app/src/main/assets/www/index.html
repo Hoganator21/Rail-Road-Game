@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Switch Challenge — Seaboard A-Line Cab Simulator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0c0e12;
+    --panel: #161a20;
+    --panel-border: #2a313c;
+    --amber: #f59e0b;
+    --cyan: #06b6d4;
+    --green: #10b981;
+    --red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+
+  /* MAIN MENU OVERLAY — Fixed viewport scaling & responsive scrolling */
+  #main-menu {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 50% 30%, #1a222d 0%, #090b0e 100%);
+    z-index: 9999; display: flex; align-items: center; justify-content: center;
+    padding: 16px; overflow-y: auto;
+  }
+  .menu-card {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+    width: 100%; max-width: 720px; max-height: 94vh; overflow-y: auto;
+    padding: 20px 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+    position: relative; z-index: 10000;
+  }
+  .menu-header { border-bottom: 1px solid var(--panel-border); padding-bottom: 10px; margin-bottom: 14px; }
+  .menu-header h1 { margin: 0; font-size: 22px; letter-spacing: 0.8px; color: var(--amber); text-transform: uppercase; }
+  .menu-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .field-group { background: #101318; border: 1px solid #222832; padding: 12px; border-radius: 6px; }
+  .field-group label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--cyan); margin-bottom: 6px; font-weight: 700; }
+  select, button {
+    width: 100%; padding: 9px 10px; border-radius: 5px; font-size: 13px; font-weight: 600;
+    border: 1px solid var(--panel-border); background: #1c222b; color: var(--text); cursor: pointer;
+    pointer-events: auto;
+  }
+  select:focus, button:hover { border-color: var(--cyan); outline: none; }
+  .radio-row { display: flex; gap: 8px; }
+  .radio-btn {
+    flex: 1; text-align: center; padding: 9px 6px; background: #1c222b; border: 1px solid var(--panel-border);
+    border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer;
+    transition: 0.15s; pointer-events: auto;
+  }
+  .radio-btn:hover { border-color: var(--cyan); }
+  .radio-btn.active { background: rgba(6, 182, 212, 0.22); border-color: var(--cyan); color: #fff; box-shadow: inset 0 0 0 1px var(--cyan); }
+  .hint-box { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.35; }
+  .btn-primary { background: var(--amber); color: #000; border: none; font-weight: 800; letter-spacing: 0.5px; margin-top: 6px; font-size: 14px; padding: 11px; }
+  .btn-primary:hover { background: #fbbf24; }
+  .btn-secondary { background: #1e293b; border-color: #334155; color: var(--cyan); margin-top: 8px; }
+  .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* TOP HUD BAR */
+  #top-bar {
+    height: 42px; min-height: 42px; background: #11141a; border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11.5px;
+  }
+  .hud-pills { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill { background: #1b2029; border: 1px solid #2c3442; padding: 3px 8px; border-radius: 4px; font-family: monospace; }
+  .pill span { color: var(--amber); font-weight: bold; }
+  #btn-pause { width: auto; padding: 5px 12px; font-size: 11.5px; background: #262d38; border-color: #3e4859; }
+
+  /* MAIN VIEWPORT (CAB + TRACK CANVAS) */
+  #viewport {
+    position: relative; flex: 1; display: flex; overflow: hidden; background: #1c2530; min-height: 0;
+  }
+  canvas#cabCanvas { flex: 1; width: 100%; height: 100%; display: block; }
+
+  /* PTC & DISPATCH OVERLAY PANEL (RIGHT SIDE) */
+  #ptc-panel {
+    width: 340px; min-width: 310px; background: #0f1318; border-left: 2px solid #28303d;
+    display: flex; flex-direction: column; padding: 8px; gap: 8px; font-family: 'Consolas', monospace;
+  }
+  .ptc-screen {
+    background: #05080c; border: 2px solid #334155; border-radius: 6px; padding: 8px;
+  }
+  .ptc-title { display: flex; justify-content: space-between; font-size: 11px; color: var(--cyan); border-bottom: 1px solid #1e293b; padding-bottom: 4px; margin-bottom: 6px; }
+  .ptc-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
+  .metric-box { background: #0d131a; border: 1px solid #1e293b; padding: 5px 4px; border-radius: 4px; }
+  .metric-val { font-size: 17px; font-weight: bold; color: #fff; }
+  .metric-lbl { font-size: 9.5px; color: var(--muted); }
+  #alerter-banner {
+    display: none; background: var(--red); color: #fff; font-weight: bold; text-align: center;
+    padding: 6px; border-radius: 4px; margin-top: 6px; animation: blink 0.6s infinite; cursor: pointer;
+  }
+  @keyframes blink { 50% { opacity: 0.35; } }
+
+  /* REAL PUBLIC MAP (LEAFLET + OPENSTREETMAP + OPENRAILWAYMAP TILES + OFFLINE FALLBACK) */
+  #corridor-map-box { flex: 1; display: flex; flex-direction: column; background: #070b10; border: 1px solid #263040; border-radius: 6px; padding: 6px; min-height: 160px; }
+  #leaflet-map { width: 100%; flex: 1; border-radius: 4px; background: #0a1017; z-index: 1; }
+  .map-legend { font-size: 10px; color: var(--muted); margin-top: 4px; display: flex; justify-content: space-between; }
+
+  /* BOTTOM AAR CONTROL STAND */
+  #control-stand {
+    height: 138px; min-height: 138px; background: linear-gradient(180deg, #1b2028 0%, #111419 100%);
+    border-top: 2px solid #343d4b; display: grid; grid-template-columns: 1.1fr 1.1fr 1.2fr 1fr;
+    gap: 10px; padding: 8px 14px;
+  }
+  .stand-module {
+    background: #14181f; border: 1px solid #2a323e; border-radius: 6px; padding: 7px 10px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .mod-title { font-size: 10.5px; font-weight: 700; color: var(--amber); text-transform: uppercase; letter-spacing: 0.5px; }
+  .lever-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  input[type=range] { flex: 1; accent-color: var(--amber); cursor: pointer; }
+  .btn-group { display: flex; gap: 6px; }
+  .btn-sm { padding: 5px 7px; font-size: 11px; }
+  .btn-horn { background: #b45309; border-color: #d97706; color: #fff; }
+  .btn-horn:active { background: #f59e0b; color: #000; }
+
+  /* PAUSE / SETTINGS MODAL */
+  #pause-modal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(5, 8, 12, 0.86); backdrop-filter: blur(4px);
+    z-index: 9998; display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .pause-card {
+    background: var(--panel); border: 1px solid #3b4656; border-radius: 10px;
+    width: 100%; max-width: 460px; padding: 22px; box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+  }
+  .pause-card h2 { margin: 0 0 6px; color: var(--amber); font-size: 19px; }
+  .pause-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .setting-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0; border-bottom: 1px solid #232a35; font-size: 12.5px;
+  }
+  .locked-badge {
+    background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-family: monospace;
+  }
+  .pause-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  #save-toast { font-size: 12px; color: var(--green); text-align: center; height: 18px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<!-- PRE-TRIP DISPATCH & CONSIST SETUP (MAIN MENU) -->
+<div id="main-menu">
+  <div class="menu-card">
+    <div class="menu-header">
+      <h1>Switch Challenge — Seaboard A-Line</h1>
+      <p>CSX / Seaboard Corridor • Richmond Acca Yard (MP 0.0) to Rocky Mount, NC (MP 124.2)</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="field-group">
+        <label for="sel-loco">1. Locomotive Carbody &amp; Livery</label>
+        <select id="sel-loco" onchange="onLocoChange(this.value)">
+          <option value="wide_bnsf">Wide-Body Cab (GE Dash-9 / BNSF 181)</option>
+          <option value="std_dme">Standard Cab (EMD SD40-2 / DM&amp;E 4006)</option>
+        </select>
+        <div class="hint-box" id="loco-desc">Wide-body safety cab: solid center bulkhead; long-hood operation restricts sightlines strictly to the rear door window and conductor window.</div>
+      </div>
+
+      <div class="field-group">
+        <label>2. Operating Orientation (Locked Upon Departure)</label>
+        <div class="radio-row" id="orientation-group">
+          <button type="button" class="radio-btn active" id="opt-orient-short" onclick="selectOrientation('short')">Short Hood Forward</button>
+          <button type="button" class="radio-btn" id="opt-orient-long" onclick="selectOrientation('long')">Long Hood Forward</button>
+        </div>
+        <div class="hint-box" id="orient-desc">Standard forward cab view over the short nose with full front windshields.</div>
+      </div>
+
+      <div class="field-group">
+        <label for="sel-route">3. Originating Terminal &amp; Route Branch</label>
+        <select id="sel-route" onchange="onRouteChange(this.value)">
+          <option value="aline_main">Acca Yard (Richmond) &rarr; Bellwood &rarr; Petersburg &rarr; Rocky Mount</option>
+          <option value="bellwood_sub">Acca Yard &rarr; Bellwood Wye &rarr; Hopewell Industrial Sub</option>
+          <option value="clifton_branch">Acca Yard &rarr; Rivanna / Clifton Forge Wye Junction</option>
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label>4. Crew Role</label>
+        <div class="radio-row" id="role-group">
+          <button type="button" class="radio-btn active" id="opt-role-engineer" onclick="selectRole('engineer')">Locomotive Engineer</button>
+          <button type="button" class="radio-btn" id="opt-role-conductor" onclick="selectRole('conductor')">Road Conductor</button>
+        </div>
+        <div class="hint-box" id="role-desc">Engineer operates from the right AAR control stand; Conductor shifts view to the left cab seat/window.</div>
+      </div>
+    </div>
+
+    <button type="button" class="btn-primary" id="btn-start-trip" onclick="startNewTrip()">DEPART TERMINAL (START RUN)</button>
+    <button type="button" class="btn-secondary" id="btn-resume-save" onclick="resumeSavedTrip()" disabled>RESUME SAVED TRIP (NO SAVE FOUND)</button>
+  </div>
+</div>
+
+<!-- TOP STATUS HUD -->
+<div id="top-bar">
+  <div class="hud-pills">
+    <div class="pill">SUB: <span id="hud-sub">A-LINE MAIN</span></div>
+    <div class="pill">ROLE: <span id="hud-role">ENGINEER</span></div>
+    <div class="pill">ORIENTATION: <span id="hud-orient">SHORT HOOD (LOCKED)</span></div>
+    <div class="pill">MILEPOST: <span id="hud-mp">MP 0.00</span></div>
+    <div class="pill">NEXT: <span id="hud-next">ACCA SOUTH WYE (1.4 MI)</span></div>
+  </div>
+  <button type="button" id="btn-pause" onclick="togglePause(true)">PAUSE / SETTINGS [ESC]</button>
+</div>
+
+<!-- MAIN CAB VIEWPORT + PTC/GIS SIDEBAR -->
+<div id="viewport">
+  <canvas id="cabCanvas"></canvas>
+
+  <div id="ptc-panel">
+    <div class="ptc-screen">
+      <div class="ptc-title">
+        <span>I-ETMS / PTC DISPLAY</span>
+        <span id="ptc-signal" style="color:#10b981;">CLEAR</span>
+      </div>
+      <div class="ptc-metrics">
+        <div class="metric-box">
+          <div class="metric-val" id="val-speed">0.0</div>
+          <div class="metric-lbl">SPEED (MPH)</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val" id="val-limit" style="color:#f59e0b;">15</div>
+          <div class="metric-lbl">LIMIT (MPH)</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val" id="val-bp">90</div>
+          <div class="metric-lbl">BRAKE PIPE</div>
+        </div>
+      </div>
+      <div id="alerter-banner" onclick="ackAlerter()">ALERTER WARNING — CLICK OR PRESS [SPACE]</div>
+    </div>
+
+    <div id="corridor-map-box">
+      <div class="ptc-title">
+        <span>LIVE PUBLIC RAIL MAP (OSM + OPENRAILWAYMAP)</span>
+        <span id="geo-coords">37.5792°N, 77.4795°W</span>
+      </div>
+      <div id="leaflet-map"></div>
+      <div class="map-legend">
+        <span id="map-source-lbl">Tiles: OpenStreetMap + OpenRailwayMap</span>
+        <span id="wye-status">Wye Switch: MAIN</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AAR CONTROL STAND -->
+<div id="control-stand">
+  <div class="stand-module">
+    <div class="mod-title">Reverser &amp; Throttle (<span id="lbl-notch">IDLE</span>)</div>
+    <div class="btn-group">
+      <button type="button" class="btn-sm" id="rev-f" onclick="setReverser(1)">FWD</button>
+      <button type="button" class="btn-sm active" id="rev-n" style="border-color:var(--amber);" onclick="setReverser(0)">NEUT</button>
+      <button type="button" class="btn-sm" id="rev-r" onclick="setReverser(-1)">REV</button>
+    </div>
+    <div class="lever-row">
+      <span style="font-size:11px;">IDLE</span>
+      <input type="range" id="rng-throttle" min="0" max="8" value="0" step="1" oninput="onThrottleInput(this.value)">
+      <span style="font-size:11px;">N8</span>
+    </div>
+  </div>
+
+  <div class="stand-module">
+    <div class="mod-title">Automatic &amp; Independent Brakes</div>
+    <div class="lever-row">
+      <span style="font-size:11px; width:62px;">AUTO: <b id="lbl-auto">REL</b></span>
+      <input type="range" id="rng-auto" min="0" max="100" value="0" oninput="onAutoBrakeInput(this.value)">
+    </div>
+    <div class="lever-row">
+      <span style="font-size:11px; width:62px;">IND: <b id="lbl-ind">45%</b></span>
+      <input type="range" id="rng-ind" min="0" max="100" value="45" oninput="onIndBrakeInput(this.value)">
+    </div>
+  </div>
+
+  <div class="stand-module">
+    <div class="mod-title">Cab Sightlines &amp; Switches</div>
+    <div class="btn-group">
+      <button type="button" class="btn-sm" id="btn-glance" onclick="cycleGlance()">GLANCE WINDOW [Q/E]</button>
+      <button type="button" class="btn-sm" id="btn-switch" onclick="toggleWyeSwitch()">THROW WYE [G]</button>
+    </div>
+    <div style="font-size:10.5px; color:var(--muted);" id="cab-view-note">
+      * Hood orientation locked for active consist.
+    </div>
+  </div>
+
+  <div class="stand-module">
+    <div class="mod-title">Signals &amp; Safety</div>
+    <div class="btn-group">
+      <button type="button" class="btn-sm btn-horn" id="btn-horn" onclick="playHorn()">HORN [H]</button>
+      <button type="button" class="btn-sm" id="btn-bell" onclick="toggleBell()">BELL [B]</button>
+    </div>
+    <button type="button" class="btn-sm" onclick="ackAlerter()" style="background:#1e293b;">ACK ALERTER [SPACE]</button>
+  </div>
+</div>
+
+<!-- PAUSE / SETTINGS MODAL -->
+<div id="pause-modal">
+  <div class="pause-card">
+    <h2>SIMULATION PAUSED</h2>
+    <div class="pause-sub">Trip progress is frozen. Locomotive hood orientation cannot be altered mid-run.</div>
+
+    <div class="setting-row">
+      <span>Locomotive Orientation</span>
+      <span class="locked-badge" id="pause-orient-lock">LOCKED: SHORT HOOD</span>
+    </div>
+    <div class="setting-row">
+      <span>Cab Interior Weathering &amp; Grime</span>
+      <select id="set-weathering" style="width:170px; padding:5px;" onchange="state.weathering = this.value">
+        <option value="service">In-Service Wear</option>
+        <option value="heavy">Heavy Rust / Yard Grime</option>
+        <option value="clean">Fresh Shop Rebuild</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <span>Engine &amp; Horn Audio Volume</span>
+      <input type="range" id="set-vol" min="0" max="100" value="70" style="width:150px;" oninput="state.volume = Number(this.value)">
+    </div>
+    <div class="setting-row">
+      <span>Cab Glance Head-Turn Sensitivity</span>
+      <input type="range" id="set-glance" min="1" max="3" value="2" style="width:150px;" oninput="state.glanceSens = Number(this.value)">
+    </div>
+
+    <div class="pause-actions">
+      <button type="button" class="btn-primary" onclick="togglePause(false)">RESUME RUN</button>
+      <button type="button" class="btn-secondary" onclick="saveProgress()">SAVE TRIP PROGRESS</button>
+      <button type="button" class="btn-sm" style="background:#3f1515; border-color:#7f1d1d; color:#fecaca; padding:10px;" onclick="saveAndQuit()">SAVE &amp; QUIT TO MAIN MENU</button>
+    </div>
+    <div id="save-toast"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="track_gis_data.js"></script>
+<script src="sim.js"></script>
+</body>
+</html>
