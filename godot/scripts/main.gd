@@ -738,7 +738,110 @@ func _try_pick(screen_pos: Vector2) -> void:
 			alerter_reset()
 			hud.toast("Alerter reset")
 
+# ---------------------------------------------------------------- controller
+const PAD_REPEAT_FIRST := 0.4
+const PAD_REPEAT_EVERY := 0.16
+var pad_held: Dictionary = {}     # repeating button -> seconds until next repeat
+var pad_y_t := -1.0               # how long Y (emergency) has been held
+var pad_lt := false
+var pad_rt := false
+
+func _pad_action(btn: int) -> void:
+	match btn:
+		JOY_BUTTON_DPAD_UP:
+			lever_up()
+		JOY_BUTTON_DPAD_DOWN:
+			lever_down()
+		JOY_BUTTON_DPAD_RIGHT:
+			auto_apply()
+		JOY_BUTTON_DPAD_LEFT:
+			auto_release()
+		JOY_BUTTON_RIGHT_SHOULDER:
+			ind_apply()
+		JOY_BUTTON_LEFT_SHOULDER:
+			ind_release()
+
+func _pad_input(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton:
+		var btn: int = event.button_index
+		if not event.pressed:
+			pad_held.erase(btn)
+			if btn == JOY_BUTTON_Y:
+				pad_y_t = -1.0
+			return true
+		if btn == JOY_BUTTON_START:
+			if game_over:
+				restart()
+			elif not running:
+				start_game()
+			else:
+				toggle_pause()
+			return true
+		if not running or game_over or paused:
+			return false   # let the menus use the D-pad and A
+		match btn:
+			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_RIGHT_SHOULDER:
+				_pad_action(btn)
+				pad_held[btn] = PAD_REPEAT_FIRST
+			JOY_BUTTON_A:
+				line_switch()
+			JOY_BUTTON_B:
+				alerter_reset()
+			JOY_BUTTON_X:
+				toggle_bell()
+			JOY_BUTTON_Y:
+				pad_y_t = 0.0
+			JOY_BUTTON_BACK:
+				cycle_counter()
+			JOY_BUTTON_LEFT_STICK:
+				toggle_sand()
+			JOY_BUTTON_RIGHT_STICK:
+				toggle_zoom()
+		return true
+	if event is InputEventJoypadMotion:
+		if event.axis == JOY_AXIS_TRIGGER_RIGHT:
+			var on: bool = event.axis_value > 0.45
+			if on != pad_rt:
+				pad_rt = on
+				set_horn(on)
+			return true
+		if event.axis == JOY_AXIS_TRIGGER_LEFT:
+			var on2: bool = event.axis_value > 0.6
+			if on2 and not pad_lt and running:
+				bail()
+			pad_lt = on2
+			return true
+	return false
+
+## Held D-pad / bumpers repeat, Y must be held to dump the air, right stick looks around.
+func _pad_process(delta: float) -> void:
+	if not running or game_over or paused:
+		pad_held.clear()
+		pad_y_t = -1.0
+		return
+	for btn in pad_held.keys():
+		pad_held[btn] -= delta
+		if pad_held[btn] <= 0.0:
+			pad_held[btn] = PAD_REPEAT_EVERY
+			_pad_action(btn)
+	if pad_y_t >= 0.0:
+		pad_y_t += delta
+		if pad_y_t > 0.45:
+			pad_y_t = -1.0
+			emergency_brake()
+	if Input.get_connected_joypads().is_empty():
+		return
+	var lx := Input.get_joy_axis(0, JOY_AXIS_RIGHT_X)
+	var ly := Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
+	if absf(lx) > 0.18 or absf(ly) > 0.18:
+		aim_sw = null
+		recentre = false
+		look_yaw = clampf(look_yaw - lx * 1.8 * delta, -1.9, 1.9)
+		look_pitch = clampf(look_pitch - ly * 1.2 * delta, -0.75, 0.6)
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _pad_input(event):
+		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_tap_start = event.position
@@ -829,6 +932,7 @@ func _process(delta: float) -> void:
 		hud.refresh()
 		return
 	time_s += delta
+	_pad_process(delta)
 	if autopilot != "":
 		_autopilot(delta)
 	if running and not game_over:

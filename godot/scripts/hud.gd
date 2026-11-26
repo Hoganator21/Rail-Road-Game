@@ -65,6 +65,43 @@ func _ready() -> void:
 	_build_start()
 	_build_over()
 	_build_pause()
+	for panel in [start_panel, over_panel, pause_panel]:
+		_pad_focusable(panel)
+	Input.joy_connection_changed.connect(func(_dev, connected):
+		toast("Controller connected" if connected else "Controller disconnected")
+		pad_focus())
+	pad_focus.call_deferred()
+
+## Overlay buttons can be driven with a controller (D-pad to move, A to press).
+func _pad_focusable(n: Node) -> void:
+	for c in n.get_children():
+		if c is Button:
+			c.focus_mode = Control.FOCUS_ALL
+			c.add_theme_stylebox_override("focus", _style(Color(0, 0, 0, 0), 12, Color(1, 0.85, 0.2, 1.0)))
+			var sb: StyleBoxFlat = c.get_theme_stylebox("focus")
+			sb.set_border_width_all(4)
+		_pad_focusable(c)
+
+## Put controller focus on the main button of whichever overlay is showing.
+func pad_focus() -> void:
+	if Input.get_connected_joypads().is_empty():
+		return
+	for pair in [[pause_panel, "RESUME"], [over_panel, "RUN AGAIN"], [start_panel, "DEPART"]]:
+		var panel: Control = pair[0]
+		if panel and panel.visible:
+			var b := _find_button(panel, pair[1])
+			if b:
+				b.grab_focus()
+			return
+
+func _find_button(n: Node, text: String) -> Button:
+	for c in n.get_children():
+		if c is Button and c.text == text:
+			return c
+		var r := _find_button(c, text)
+		if r:
+			return r
+	return null
 
 # ---------------------------------------------------------------- helpers
 func _style(c: Color, radius: int = 10, border: Color = Color(0, 0, 0, 0)) -> StyleBoxFlat:
@@ -395,7 +432,7 @@ func _build_start() -> void:
 	sub.text = "Endless main line  -  read the switches, follow the yardmaster"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sub)
-	var how := _label(15)
+	var how := _label(13)
 	how.custom_minimum_size = Vector2(900, 0)
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	how.text = "- Switch target: GREEN = lined for the MAIN, RED = lined for the siding/spur.\n" \
@@ -406,6 +443,8 @@ func _build_start() -> void:
 		+ "- Tonnage and length matter: heavy trains are slow to start and slow to stop. Plan ahead.\n" \
 		+ "PC: W/S throttle & dynamic, D/A auto brake, ]/[ independent, B bail, Space emergency, H horn, G bell,\n" \
 		+ "     X sand, E line switch, Z zoom, F footage counter, drag the mouse to look.\n" \
+		+ "Controller: D-pad throttle/auto brake, LB/RB independent, LT bail, RT horn, A line switch, B alerter,\n" \
+		+ "     X bell, hold Y EMERGENCY, L3 sand, R3 zoom, right stick look, Back counter, Start pause.\n" \
 		+ "Phone: drag the three levers, hold HORN, drag the view to look, pinch to zoom."
 	v.add_child(how)
 	best_start_lbl = _label(22, Color(0.7, 1, 0.7))
@@ -440,12 +479,14 @@ func _build_start() -> void:
 	v.add_child(consist_lbl)
 	_upd_consist()
 	db_btn = _button("", Vector2(360, 40), func(): game.set_classic_db(not game.classic_db); _update_db_btn(), Color(0.2, 0.2, 0.24, 0.95), 15)
-	db_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(db_btn)
+	var opts := HBoxContainer.new()
+	opts.alignment = BoxContainer.ALIGNMENT_CENTER
+	opts.add_theme_constant_override("separation", 12)
+	opts.add_child(db_btn)
+	v.add_child(opts)
 	_pick_loco(game.loco_model)
 	q_btn_start = _button("", Vector2(260, 40), func(): game.cycle_quality(); _upd_q(), Color(0.2, 0.2, 0.24, 0.95), 15)
-	q_btn_start.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(q_btn_start)
+	opts.add_child(q_btn_start)
 	var b := _button("DEPART", Vector2(280, 66), func(): game.start_game(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
@@ -522,9 +563,18 @@ func on_start() -> void:
 	start_panel.visible = false
 	over_panel.visible = false
 	pause_panel.visible = false
+	var f := root.get_viewport().gui_get_focus_owner()
+	if f:
+		f.release_focus()
 
 func set_paused(p: bool) -> void:
 	pause_panel.visible = p
+	if p:
+		pad_focus()
+	else:
+		var f := root.get_viewport().gui_get_focus_owner()
+		if f:
+			f.release_focus()
 
 func show_game_over(title: String, msg: String, final: int, best: int, new_best: bool) -> void:
 	over_title.text = title
@@ -532,6 +582,7 @@ func show_game_over(title: String, msg: String, final: int, best: int, new_best:
 	over_score.text = ("NEW BEST!  " if new_best else "") + "Score %d   -   Best %d" % [final, best]
 	over_panel.visible = true
 	toast_lbl.modulate.a = 0.0
+	pad_focus()
 
 func toast(text: String, color: Color = Color.WHITE) -> void:
 	toast_lbl.text = text
