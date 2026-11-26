@@ -23,8 +23,15 @@ const LINE_RANGE := 160.0    # must be stopped within this many metres to line a
 const BEHIND_KEEP := 450.0
 const AHEAD_BUILD := 1600.0
 const AHEAD_EVENTS := 2600.0
-const BRAKE_REDUCTION := [0.0, 7.0, 12.0, 17.0, 22.0, 26.0]
-const BRAKE_NAMES := ["RELEASE", "MINIMUM", "SERVICE 2", "SERVICE 3", "SERVICE 4", "FULL SERVICE"]
+# train physics (from v11): ~1,250 t train, 430 kN tractive effort, 2.4 MW at the rail, 300 kN dynamic brake
+const MASS := 1.25e6
+const TE_MAX := 430e3
+const P_MAX := 2.4e6
+const DB_MAX := 300e3
+const AUTO_STEPS := [0.0, 0.06, 0.2, 0.35, 0.5, 0.65, 0.86]
+const IND_STEPS := [0.0, 0.25, 0.5, 0.75, 1.0]
+const ALERT_WARN := 45.0
+const ALERT_PENALTY := 55.0
 
 # ---------------------------------------------------------------- data types
 class Switch:
@@ -59,11 +66,27 @@ var chunks: Dictionary = {}
 var next_event_d: float = 450.0
 var front_d: float = 0.0
 var speed: float = 0.0
-var throttle: int = 0
-var brake: int = 0
+var lever: int = 0            # 8..1 = notch, 0 = idle, -1 = DB setup, -2..-9 = dynamic brake 1..8
+var auto_h: float = 0.0       # automatic brake handle 0 (release) .. 0.86 (full service)
+var ind_h: float = 0.0        # independent brake handle 0..1
 var emergency: bool = false
-var bp_psi: float = 90.0
-var bc_psi: float = 0.0
+var er_psi: float = 90.0      # equalizing reservoir
+var bp_psi: float = 90.0      # brake pipe
+var bc_psi: float = 0.0       # car brake cylinders
+var lbc_psi: float = 0.0      # locomotive brake cylinder
+var power: float = 0.0        # 0..1 load on the main generator
+var dyn: float = 0.0          # 0..1 dynamic brake effort
+var prev_bct: float = 0.0
+var bail_t: float = 0.0
+var bailed: bool = false
+var sand: bool = false
+var horn: bool = false
+var bell: bool = false
+var alert_t: float = 0.0
+var accel_now: float = 0.0
+var joints: Array = []
+var next_joint_d: float = 30.0
+var snd
 var route = null
 var score: float = 0.0
 var best: int = 0
@@ -134,6 +157,8 @@ func _ready() -> void:
 	_make_ground()
 	_make_cab()
 	_load_best()
+	snd = preload("res://scripts/sound.gd").new()
+	add_child(snd)
 	hud = preload("res://scripts/hud.gd").new()
 	hud.game = self
 	add_child(hud)
@@ -278,11 +303,25 @@ func reset_world() -> void:
 	next_event_d = 450.0
 	front_d = 0.0
 	speed = 0.0
-	throttle = 0
-	brake = 0
+	lever = 0
+	auto_h = 0.0
+	ind_h = 0.0
 	emergency = false
+	er_psi = 90.0
 	bp_psi = 90.0
 	bc_psi = 0.0
+	lbc_psi = 0.0
+	power = 0.0
+	dyn = 0.0
+	prev_bct = 0.0
+	bail_t = 0.0
+	bailed = false
+	sand = false
+	horn = false
+	bell = false
+	alert_t = 0.0
+	joints.clear()
+	next_joint_d = 30.0
 	route = null
 	score = 0.0
 	strikes = 0
@@ -305,8 +344,10 @@ func reset_world() -> void:
 func start_game() -> void:
 	running = true
 	game_over = false
-	throttle = 3
-	brake = 0
+	lever = 0
+	auto_h = 0.0
+	ind_h = 0.0
+	snd.start()
 	hud.on_start()
 
 func restart() -> void:
@@ -326,38 +367,117 @@ func _notification(what: int) -> void:
 		toggle_pause()
 
 func line_max() -> int:
-	return mini(70, 40 + 5 * int(front_d / 2000.0))
+	return mini(60, 40 + 5 * int(front_d / 2500.0))
 
 # ---------------------------------------------------------------- controls
-func throttle_up() -> void:
-	if running and not game_over:
-		throttle = mini(8, throttle + 1)
+func _can_control() -> bool:
+	return running and not game_over
 
-func throttle_down() -> void:
-	if running and not game_over:
-		throttle = maxi(0, throttle - 1)
+func _touch() -> void:
+	alert_t = 0.0
 
-func brake_more() -> void:
-	if running and not game_over:
-		brake = mini(5, brake + 1)
+func set_lever(v: int) -> void:
+	if _can_control():
+		lever = clampi(v, -9, 8)
+		_touch()
 
-func brake_less() -> void:
-	if running and not game_over:
-		if emergency:
-			if speed < 0.1:
-				emergency = false
-				brake = 0
-				hud.toast("Emergency reset - brakes releasing")
-			else:
-				hud.toast("Can't recover emergency until stopped")
+func lever_up() -> void:
+	set_lever(lever + 1)
+
+func lever_down() -> void:
+	set_lever(lever - 1)
+
+func set_auto(h: float) -> void:
+	if not _can_control():
+		return
+	_touch()
+	h = clampf(h, 0.0, 0.86)
+	if emergency:
+		if h < 0.03 and speed < 0.1:
+			emergency = false
+			hud.toast("Emergency reset - recharging the brake pipe")
+		elif h < 0.03:
+			hud.toast("Can't recover the emergency until you're stopped")
 			return
-		brake = maxi(0, brake - 1)
+	auto_h = h
+
+func auto_apply() -> void:
+	for st in AUTO_STEPS:
+		if st > auto_h + 0.01:
+			set_auto(st)
+			return
+
+func auto_release() -> void:
+	var lower := 0.0
+	for st in AUTO_STEPS:
+		if st < auto_h - 0.01:
+			lower = st
+	set_auto(lower)
+
+func set_ind(h: float) -> void:
+	if _can_control():
+		ind_h = clampf(h, 0.0, 1.0)
+		_touch()
+
+func ind_apply() -> void:
+	set_ind(ind_h + 0.25)
+
+func ind_release() -> void:
+	set_ind(ind_h - 0.25)
+
+func bail() -> void:
+	if _can_control():
+		bail_t = 0.6
+		_touch()
 
 func emergency_brake() -> void:
-	if running and not game_over and not emergency:
+	if _can_control() and not emergency:
 		emergency = true
-		throttle = 0
+		lever = mini(lever, 0)
+		_touch()
 		hud.toast("EMERGENCY BRAKE!", Color(1, 0.3, 0.3))
+
+func toggle_sand() -> void:
+	if _can_control():
+		sand = not sand
+		_touch()
+
+func set_horn(on: bool) -> void:
+	horn = on and _can_control()
+	if on:
+		_touch()
+
+func toggle_bell() -> void:
+	if _can_control():
+		bell = not bell
+		_touch()
+
+func lever_name() -> String:
+	if lever > 0:
+		return "N%d" % lever
+	if lever == 0:
+		return "IDLE"
+	if lever == -1:
+		return "DB SETUP"
+	return "DB%d" % (-lever - 1)
+
+func auto_name() -> String:
+	if emergency:
+		return "EMERGENCY"
+	if auto_h < 0.03:
+		return "RELEASE"
+	if auto_h < 0.1:
+		return "MINIMUM"
+	if auto_h >= 0.85:
+		return "FULL SERVICE"
+	return "SERVICE %d LB" % int(90.0 - _er_target(auto_h))
+
+func _er_target(h: float) -> float:
+	if emergency:
+		return 0.0
+	if h < 0.03:
+		return 90.0
+	return 90.0 - (6.0 + (clampf(h, 0.06, 0.86) - 0.06) / 0.8 * 20.0)
 
 func toggle_zoom() -> void:
 	zoomed = not zoomed
@@ -384,18 +504,31 @@ func _set_zoom_fov(f: float) -> void:
 		recentre = false
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_H and not event.echo:
+		set_horn(event.pressed)
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_W, KEY_UP:
-				throttle_up()
+				lever_up()
 			KEY_S, KEY_DOWN:
-				throttle_down()
+				lever_down()
 			KEY_D, KEY_RIGHT:
-				brake_more()
+				auto_apply()
 			KEY_A, KEY_LEFT:
-				brake_less()
-			KEY_SPACE, KEY_X:
+				auto_release()
+			KEY_BRACKETRIGHT:
+				ind_apply()
+			KEY_BRACKETLEFT:
+				ind_release()
+			KEY_B:
+				bail()
+			KEY_SPACE:
 				emergency_brake()
+			KEY_X:
+				toggle_sand()
+			KEY_G:
+				toggle_bell()
 			KEY_E, KEY_ENTER, KEY_L:
 				line_switch()
 			KEY_Z, KEY_TAB:
@@ -456,7 +589,8 @@ func _process(delta: float) -> void:
 	_update_camera(delta)
 	var nsw = next_switch()
 	var ntxt := "" if nsw == null else "SW %d FT" % int((nsw.d - front_d) * 3.281)
-	cab_builder.update(throttle, brake, emergency, int(speed * MPH), line_max(), bp_psi, bc_psi, ntxt)
+	cab_builder.update(lever, auto_h, ind_h, emergency, int(speed * MPH), line_max(), bp_psi, bc_psi, ntxt)
+	_update_sound(delta)
 	hud.refresh()
 	if shot_dir != "":
 		if not zoom_times.is_empty() and time_s >= zoom_times[0]:
@@ -471,29 +605,51 @@ func _process(delta: float) -> void:
 				get_tree().quit()
 
 func _update_train(delta: float) -> void:
-	# --- air brake: brake pipe and brake cylinder pressures lag the handle
-	var target_bp: float = 0.0 if emergency else 90.0 - float(BRAKE_REDUCTION[brake])
-	var bp_rate := 4.0 if emergency else (1.3 if target_bp < bp_psi else 0.55)
-	bp_psi = lerpf(bp_psi, target_bp, 1.0 - exp(-bp_rate * delta))
-	var target_bc := 75.0 if emergency else clampf((90.0 - bp_psi) * 2.5, 0.0, 65.0)
-	var bc_rate := 3.0 if emergency else (1.1 if target_bc > bc_psi else 0.6)
-	bc_psi = lerpf(bc_psi, target_bc, 1.0 - exp(-bc_rate * delta))
-	if bc_psi < 0.5:
-		bc_psi = 0.0
-	# --- traction, braking, drag
-	var accel := 0.0
-	if lining_sw == null and not emergency:
-		accel = float(throttle) / 8.0 * 0.8 * clampf(1.0 - speed / 36.0, 0.15, 1.0)
-	var brake_dec := bc_psi / 65.0 * 1.15
+	# --- automatic brake: equalizing reservoir -> brake pipe -> car cylinders (v11 rates)
+	er_psi = _approach(er_psi, _er_target(auto_h), 5.0, 7.0, delta)
 	if emergency:
-		brake_dec += 0.5
-	var drag := 0.012 + speed * 0.0025
+		bp_psi = _approach(bp_psi, 0.0, 0.0, 70.0, delta)
+	else:
+		bp_psi = _approach(bp_psi, er_psi, 2.2, 4.5, delta)
+	var red := 90.0 - bp_psi
+	var bct := 77.0 if emergency else (0.0 if red < 5.0 else minf(64.0, red * 2.5))
+	bc_psi = _approach(bc_psi, bct, 8.0, 3.2, delta)
+	# --- independent brake, with bail-off of the automatic on the locomotive
+	if bct > prev_bct + 0.5:
+		bailed = false
+	prev_bct = bct
+	if bail_t > 0.0:
+		bail_t -= delta
+		bailed = true
+	var lt := maxf(ind_h * 45.0, 0.0 if bailed else minf(bc_psi, 45.0))
+	lbc_psi = _approach(lbc_psi, lt, 20.0, 12.0, delta)
+	# --- main generator load and dynamic brake build up gradually
+	var can_power := not emergency and bp_psi > 45.0 and lining_sw == null
+	power = _approach(power, float(maxi(lever, 0)) / 8.0 if can_power else 0.0, 1.0 / 7.0, 1.0 / 3.0, delta)
+	var db_notch := (-lever - 1) if lever <= -2 else 0
+	dyn = _approach(dyn, float(db_notch) / 8.0, 1.0 / 5.0, 1.0 / 3.0, delta)
+	# --- forces
+	var v := speed
+	var f_trac := minf(TE_MAX * power, P_MAX * power / maxf(v, 1.5)) * (1.1 if sand and v < 6.0 else 1.0)
+	var db_shape := v / 4.0 if v < 4.0 else (1.0 if v < 11.0 else 11.0 / v)
+	var a_db := DB_MAX * dyn * db_shape / MASS
+	var a_br := bc_psi / 64.0 * 0.72 + lbc_psi / 45.0 * 0.14
+	var a_res := 0.012 + 0.00022 * v * v
+	var a := f_trac / MASS - a_br - a_res - a_db
 	if lining_sw != null:
-		brake_dec = maxf(brake_dec, 2.5)
-	var net := accel - (brake_dec + drag if speed > 0.0 else 0.0)
-	speed = maxf(0.0, speed + net * delta)
-	if speed < 0.05 and accel < brake_dec + drag:
-		speed = 0.0
+		a = minf(a, -2.5)
+	speed = 0.0 if (v <= 0.01 and a <= 0.0) else maxf(0.0, v + a * delta)
+	accel_now = a
+	# --- alerter: any control input resets it
+	if speed > 0.5:
+		alert_t += delta
+		if alert_t > ALERT_PENALTY:
+			alert_t = 0.0
+			auto_h = 0.86
+			lever = mini(lever, 0)
+			hud.toast("ALERTER PENALTY - brakes applied", Color(1, 0.4, 0.3))
+	else:
+		alert_t = minf(alert_t, 30.0)
 	# --- lining in progress
 	if lining_sw != null:
 		lining_timer -= delta
@@ -501,6 +657,7 @@ func _update_train(delta: float) -> void:
 			_finish_lining()
 	var d_prev := front_d
 	front_d += speed * delta
+	_joint_clacks(d_prev, front_d)
 	score += speed * delta * (speed * MPH / 10.0) * 0.1
 	_check_switches(d_prev, front_d)
 	if game_over:
@@ -581,6 +738,33 @@ func _finish_lining() -> void:
 	_update_switch_visual(sw)
 	hud.toast("Switch lined for the %s" % route_name(sw, sw.reversed))
 
+# axle positions behind the nose (front truck, rear truck) and how loud each sounds in the cab
+const AXLES := [[2.0, 1.0], [3.9, 0.9], [5.8, 0.8], [15.8, 0.5], [17.7, 0.45], [19.6, 0.4]]
+
+func _update_sound(delta: float) -> void:
+	var notch := maxi(lever, 0) if not emergency else 0
+	snd.update(delta, {"speed": speed, "notch": notch, "power": power, "dyn": dyn, "bp": bp_psi, "bc": bc_psi,
+		"lbc": lbc_psi, "emergency": emergency, "horn": horn and running, "bell": bell,
+		"alert": 1 if (running and alert_t > ALERT_WARN) else 0, "running": running and not game_over})
+
+func _joint_clacks(d_prev: float, d_now: float) -> void:
+	if d_now <= d_prev:
+		return
+	var keep: Array = []
+	for j in joints:
+		var jd: float = j[0]
+		for ax in AXLES:
+			var off: float = ax[0]
+			if jd > d_prev - off and jd <= d_now - off:
+				var g: float = ax[1] * clampf(speed / 8.0, 0.25, 1.0) * (1.3 if j[1] else 0.7)
+				snd.clack(g, j[1])
+		if jd > d_now - 25.0:
+			keep.append(j)
+	joints = keep
+
+func _approach(v: float, t: float, up: float, down: float, dt: float) -> float:
+	return minf(t, v + up * dt) if v < t else maxf(t, v - down * dt)
+
 func _check_switches(a: float, b: float) -> void:
 	for ev in events:
 		for sw in ev.switches:
@@ -658,12 +842,15 @@ func _back_out() -> void:
 	_update_switch_visual(sw)
 	front_d = sw.d - 140.0
 	speed = 0.0
-	throttle = 0
-	brake = 2
+	lever = 0
+	auto_h = 0.2
 
 func _end_game(title: String, msg: String) -> void:
 	game_over = true
 	running = false
+	horn = false
+	if title in ["COLLISION", "DERAILED", "RAN THROUGH SWITCH"]:
+		snd.play("crash", 1.0)
 	if autopilot != "":
 		print("AUTOTEST END: %s - %s (at %.0f m, %d mph)" % [title, msg, front_d, int(speed * MPH)])
 	lining_sw = null
@@ -690,7 +877,7 @@ func yardmaster_info() -> Array:
 	if route != null and route.kind == "spur_facing":
 		return ["Yardmaster: You're in the SPUR with standing cars ahead. STOP!", ""]
 	var sw = next_switch()
-	if sw == null or sw.d - front_d > 1300.0:
+	if sw == null or sw.d - front_d > 1700.0:
 		return ["Yardmaster: Clear track ahead. Watch for switches.", ""]
 	var ev = sw.ev
 	var side_txt := "RIGHT" if sw.side > 0 else "LEFT"
@@ -770,6 +957,9 @@ func _update_camera(delta: float) -> void:
 func _stream() -> void:
 	while next_event_d < front_d + AHEAD_EVENTS:
 		_gen_event()
+	while next_joint_d < front_d + 300.0:
+		joints.append([next_joint_d, false])
+		next_joint_d += rng.randf_range(25.0, 90.0)
 	var first := int(floor((front_d - BEHIND_KEEP) / CHUNK))
 	var last := int(floor((front_d + AHEAD_BUILD) / CHUNK))
 	for k in chunks.keys():
@@ -823,9 +1013,12 @@ func _gen_event() -> void:
 		_add_switch(ev, ev.d_out, false, false, p_wrong * 0.9, p_lie)
 	events.append(ev)
 	_build_event_visuals(ev)
+	for sw in ev.switches:
+		joints.append([sw.d, true])                                     # points
+		joints.append([sw.d + (22.0 if sw.facing else -22.0), true])   # frog
 	# leave at least a full-service stopping distance (plus reaction room) at track speed
-	var v: float = float(mini(70, 40 + 5 * int(ev.end / 2000.0))) / MPH
-	var stop_room: float = v * v / 2.0 + v * 5.0 + 220.0
+	var v: float = float(mini(60, 40 + 5 * int(ev.end / 2500.0))) / MPH
+	var stop_room: float = v * v / (2.0 * 0.62) + v * 8.0 + 250.0
 	next_event_d = ev.end + maxf(lerpf(650.0, 300.0, k), stop_room) + rng.randf_range(0.0, 320.0)
 
 func _add_switch(ev, d: float, facing: bool, required: bool, p_wrong: float, p_lie: float) -> void:
@@ -1177,10 +1370,10 @@ func _autopilot(delta: float) -> void:
 		return
 	if auto_report > 60.0:
 		auto_report = 0.0
-		print("AUTOTEST t=%.0f  d=%.0f m  %d mph  thr %d brk %d  score %d  strikes %d  events %d chunks %d" % [time_s, front_d, int(speed * MPH), throttle, brake, int(score), strikes, events.size(), chunks.size()])
+		print("AUTOTEST t=%.0f  d=%.0f m  %d mph  lever %d auto %.2f  score %d  strikes %d  events %d chunks %d" % [time_s, front_d, int(speed * MPH), lever, auto_h, int(score), strikes, events.size(), chunks.size()])
 	if autopilot == "dumb":
-		throttle = 6
-		brake = 0
+		lever = 6
+		auto_h = 0.0
 		return
 	var desired := float(line_max()) / MPH
 	if route != null:
@@ -1190,27 +1383,30 @@ func _autopilot(delta: float) -> void:
 		var dist: float = sw.d - front_d
 		var need_rev := expected_reversed(sw)
 		if sw.reversed != need_rev:
-			if OS.get_environment("APDBG") != "" and int(time_s * 2) != int((time_s - delta) * 2):
-				print("DBG d=%.0f sw=%.0f dist=%.0f v=%.1f thr=%d brk=%d bc=%.0f facing=%s kind=%s" % [front_d, sw.d, dist, speed, throttle, brake, bc_psi, str(sw.facing), sw.ev.kind])
 			if lining_sw == null:
-				var stop_d := speed * speed / (2.0 * 0.8) + speed * 5.0 + 60.0
+				var stop_d := speed * speed / (2.0 * 0.62) + speed * 8.0 + 60.0
 				if dist < stop_d:
 					desired = 0.0
 				if speed < 0.3 and dist <= LINE_RANGE:
 					line_switch()
 		elif need_rev:
-			var slow_d := (speed * speed - 64.0) / (2.0 * 0.7) + speed * 5.0 + 120.0
-			if dist < maxf(slow_d, 120.0):
+			var slow_d := (speed * speed - 64.0) / (2.0 * 0.55) + speed * 8.0 + 120.0
+			if dist < maxf(slow_d, 150.0):
 				desired = minf(desired, 20.0 / MPH)
+	_touch()
 	if desired <= 0.0:
-		throttle = 0
-		brake = 5
+		lever = -9 if speed > 4.0 else 0
+		auto_h = 0.86
+		ind_h = 1.0 if speed < 1.0 else 0.0
 	elif speed < desired - 0.8:
-		throttle = 7
-		brake = 0
+		lever = 8
+		auto_h = 0.0
+		ind_h = 0.0
 	elif speed > desired + 0.8:
-		throttle = 0
-		brake = 5 if speed > desired + 3.0 else 1
+		lever = -9
+		auto_h = 0.5 if speed > desired + 3.0 else 0.0
+		ind_h = 0.0
 	else:
-		throttle = 3
-		brake = 0
+		lever = 3
+		auto_h = 0.0
+		ind_h = 0.0

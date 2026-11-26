@@ -6,6 +6,7 @@ extends RefCounted
 var m: Dictionary = {}
 var lever_thr: MeshInstance3D
 var lever_auto: MeshInstance3D
+var lever_ind: MeshInstance3D
 var wipers: Array = []
 var ptc_label: Label3D
 var gauge_label: Label3D
@@ -310,7 +311,7 @@ func _cab_interior(p: Node, w: float) -> void:
 	sand.rotation.z = -PI / 2.0
 	lever_thr = box(p, 0.04, 0.18, 0.04, m["seat_trim"], side_x + 0.08, desk_y + 0.1, side_z - 0.14)
 	lever_auto = box(p, 0.04, 0.16, 0.04, m["red"], side_x + 0.08, desk_y + 0.1, side_z + 0.08)
-	box(p, 0.035, 0.14, 0.035, m["sand_btn"], side_x + 0.08, desk_y + 0.09, side_z + 0.24)
+	lever_ind = box(p, 0.035, 0.14, 0.035, m["sand_btn"], side_x + 0.08, desk_y + 0.09, side_z + 0.24)
 	# conductor's station (left): two tandem seats, desk, radio, horn button
 	var cond_x := -0.86
 	_seat(p, cond_x, floor_y, 1.18)
@@ -344,12 +345,15 @@ func _cab_interior(p: Node, w: float) -> void:
 		g2.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 ## Called every frame with the game state so levers and screens move.
-func update(throttle: int, brake: int, emergency: bool, mph: int, limit: int, bp: float, bc: float, next_txt: String) -> void:
+func update(lever: int, auto_h: float, ind_h: float, emergency: bool, mph: int, limit: int, bp: float, bc: float, next_txt: String) -> void:
 	if lever_thr:
-		lever_thr.rotation.x = -0.6 + throttle * 0.15
+		lever_thr.rotation.x = -(float(lever) / 8.0) * 0.45
 	if lever_auto:
-		lever_auto.rotation.x = -0.5 + (1.4 if emergency else brake * 0.2)
+		lever_auto.rotation.x = (1.0 if emergency else auto_h) * 0.6
+	if lever_ind:
+		lever_ind.rotation.x = ind_h * 0.6
 	if ptc_label:
 		ptc_label.text = "PTC  %d / %d MPH\n%s" % [mph, limit, next_txt]
 	if gauge_label:
-		gauge_label.text = "BP %d\nBC %d\nN%d" % [int(bp), int(bc), throttle]
+		var lv := "N%d" % lever if lever > 0 else ("IDLE" if lever == 0 else ("SETUP" if lever == -1 else "DB%d" % (-lever - 1)))
+		gauge_label.text = "BP %d\nBC %d\n%s" % [int(bp), int(bc), lv]

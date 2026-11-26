@@ -17,6 +17,16 @@ var toast_lbl: Label
 var toast_t: float = 0.0
 var btn_line: Button
 var btn_zoom: Button
+var sl_lever: VSlider
+var sl_auto: VSlider
+var sl_ind: VSlider
+var lbl_lever: Label
+var lbl_auto: Label
+var lbl_ind: Label
+var btn_bell: Button
+var btn_sand: Button
+var alert_lbl: Label
+var force_lbl: Label
 var start_panel: Control
 var over_panel: Control
 var pause_panel: Control
@@ -103,7 +113,11 @@ func _build_gauges() -> void:
 	limit_lbl = _label(18, Color(0.8, 0.85, 0.95))
 	controls_lbl = _label(20)
 	air_lbl = _label(18, Color(0.75, 0.9, 1.0))
-	for l in [speed_lbl, limit_lbl, controls_lbl, air_lbl]:
+	force_lbl = _label(18, Color(0.85, 0.95, 0.8))
+	alert_lbl = _label(22, Color(1, 0.35, 0.3))
+	alert_lbl.text = "ALERTER - touch a control!"
+	alert_lbl.visible = false
+	for l in [speed_lbl, limit_lbl, controls_lbl, air_lbl, force_lbl, alert_lbl]:
 		v.add_child(l)
 	root.add_child(p)
 
@@ -139,29 +153,100 @@ func _build_score() -> void:
 	h.add_child(_button("II", Vector2(64, 64), func(): game.toggle_pause()))
 	root.add_child(p)
 
+func _grabber(c: Color) -> ImageTexture:
+	var img := Image.create(84, 46, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in 46:
+		for x in 84:
+			var edge := x < 2 or x > 81 or y < 2 or y > 43
+			var grip := (y == 15 or y == 23 or y == 31) and x > 14 and x < 70
+			img.set_pixel(x, y, Color(0.05, 0.05, 0.05) if edge else (c.darkened(0.45) if grip else c))
+	return ImageTexture.create_from_image(img)
+
+func _lever(color: Color, min_v: float, max_v: float, step: float, cb: Callable) -> VSlider:
+	var sl := VSlider.new()
+	sl.min_value = min_v
+	sl.max_value = max_v
+	sl.step = step
+	sl.custom_minimum_size = Vector2(88, 270)
+	sl.focus_mode = Control.FOCUS_NONE
+	var tex := _grabber(color)
+	sl.add_theme_icon_override("grabber", tex)
+	sl.add_theme_icon_override("grabber_highlight", tex)
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.02, 0.02, 0.03, 0.85)
+	track.set_corner_radius_all(6)
+	track.content_margin_left = 9
+	track.content_margin_right = 9
+	sl.add_theme_stylebox_override("slider", track)
+	var area := StyleBoxFlat.new()
+	area.bg_color = Color(color.r, color.g, color.b, 0.25)
+	area.set_corner_radius_all(6)
+	area.content_margin_left = 9
+	area.content_margin_right = 9
+	sl.add_theme_stylebox_override("grabber_area", area)
+	sl.add_theme_stylebox_override("grabber_area_highlight", area)
+	sl.value_changed.connect(cb)
+	return sl
+
+func _lever_col(title: String, sl: VSlider, top_txt: String, bottom_txt: String) -> Array:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	var t := _label(15, Color(0.9, 0.9, 0.9))
+	t.text = title
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var val := _label(17, Color(1, 0.85, 0.35))
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tt := _label(12, Color(0.7, 0.75, 0.8))
+	tt.text = top_txt
+	tt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var bt := _label(12, Color(0.7, 0.75, 0.8))
+	bt.text = bottom_txt
+	bt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for c in [t, val, tt]:
+		v.add_child(c)
+	sl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(sl)
+	v.add_child(bt)
+	return [v, val]
+
 func _build_controls() -> void:
-	# right side: throttle and brake
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	_anchor(grid, Control.PRESET_BOTTOM_RIGHT, -16, -16, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_BEGIN)
-	var green := Color(0.1, 0.35, 0.18, 0.9)
-	var red := Color(0.45, 0.12, 0.1, 0.9)
-	var tl := _label(18, Color(0.8, 1, 0.8))
-	tl.text = "THROTTLE"
-	grid.add_child(tl)
-	var bl := _label(18, Color(1, 0.8, 0.8))
-	bl.text = "AIR BRAKE"
-	grid.add_child(bl)
-	grid.add_child(_button("+", Vector2(130, 84), func(): game.throttle_up(), green, 40))
-	grid.add_child(_button("APPLY", Vector2(130, 84), func(): game.brake_more(), red, 24))
-	grid.add_child(_button("-", Vector2(130, 84), func(): game.throttle_down(), green, 40))
-	grid.add_child(_button("RELEASE", Vector2(130, 84), func(): game.brake_less(), red, 22))
-	root.add_child(grid)
-	var em := _button("EMERGENCY", Vector2(270, 60), func(): game.emergency_brake(), Color(0.7, 0.05, 0.05, 0.95), 22)
-	_anchor(em, Control.PRESET_BOTTOM_RIGHT, -16, -228, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_BEGIN)
-	root.add_child(em)
+	var panel := _panel(Color(0.03, 0.04, 0.06, 0.55))
+	_anchor(panel, Control.PRESET_BOTTOM_RIGHT, -10, -10, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_BEGIN)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	panel.add_child(col)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var horn := _button("HORN", Vector2(84, 58), func(): pass, Color(0.35, 0.3, 0.1, 0.92), 18)
+	horn.button_down.connect(func(): game.set_horn(true))
+	horn.button_up.connect(func(): game.set_horn(false))
+	btn_bell = _button("BELL", Vector2(84, 58), func(): game.toggle_bell(), Color(0.25, 0.25, 0.3, 0.92), 18)
+	btn_sand = _button("SAND", Vector2(84, 58), func(): game.toggle_sand(), Color(0.25, 0.25, 0.3, 0.92), 18)
+	var bail := _button("BAIL", Vector2(84, 58), func(): game.bail(), Color(0.15, 0.25, 0.45, 0.92), 18)
+	for b in [horn, btn_bell, btn_sand, bail]:
+		row.add_child(b)
+	col.add_child(row)
+	var levers := HBoxContainer.new()
+	levers.add_theme_constant_override("separation", 14)
+	levers.alignment = BoxContainer.ALIGNMENT_CENTER
+	sl_lever = _lever(Color(0.3, 0.75, 0.4), -9, 8, 1, func(v): game.set_lever(int(v)))
+	sl_auto = _lever(Color(0.85, 0.3, 0.25), 0, 100, 1, func(v): game.set_auto((100.0 - v) / 100.0 * 0.86))
+	sl_ind = _lever(Color(0.3, 0.5, 0.9), 0, 100, 1, func(v): game.set_ind((100.0 - v) / 100.0))
+	sl_auto.value = 100
+	sl_ind.value = 100
+	var c1 := _lever_col("THROTTLE", sl_lever, "N8", "DB8")
+	var c2 := _lever_col("AUTO BRK", sl_auto, "REL", "FULL")
+	var c3 := _lever_col("IND BRK", sl_ind, "REL", "FULL")
+	lbl_lever = c1[1]
+	lbl_auto = c2[1]
+	lbl_ind = c3[1]
+	for c in [c1[0], c2[0], c3[0]]:
+		levers.add_child(c)
+	col.add_child(levers)
+	var em := _button("EMERGENCY", Vector2(0, 54), func(): game.emergency_brake(), Color(0.7, 0.05, 0.05, 0.95), 22)
+	col.add_child(em)
+	root.add_child(panel)
 	# left side: view
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 10)
@@ -171,8 +256,8 @@ func _build_controls() -> void:
 	lv.add_child(_button("LOOK\nAHEAD", Vector2(150, 70), func(): _look_ahead(), Color(0.15, 0.25, 0.4, 0.9), 20))
 	root.add_child(lv)
 	# centre: line switch
-	btn_line = _button("LINE SWITCH", Vector2(320, 96), func(): game.line_switch(), Color(0.85, 0.5, 0.05, 0.95), 30)
-	_anchor(btn_line, Control.PRESET_CENTER_BOTTOM, 0, -20, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BEGIN)
+	btn_line = _button("LINE SWITCH", Vector2(300, 90), func(): game.line_switch(), Color(0.85, 0.5, 0.05, 0.95), 28)
+	_anchor(btn_line, Control.PRESET_CENTER_BOTTOM, -150, -20, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BEGIN)
 	btn_line.visible = false
 	root.add_child(btn_line)
 
@@ -229,9 +314,11 @@ func _build_start() -> void:
 		+ "- Targets can be knocked wrong. ZOOM and check which point is closed.\n" \
 		+ "- If a switch is lined wrong, stop within 500 ft and press LINE SWITCH.\n" \
 		+ "- Facing point wrong = wrong route or a wreck. Trailing point wrong = you run through it.\n" \
-		+ "- Diverging route limit 25 MPH. Three strikes and you're done.\n\n" \
-		+ "PC: W/S throttle, D/A brake apply/release, Space emergency, E line switch, Z zoom, drag mouse to look.\n" \
-		+ "Phone: buttons on screen, drag to look, pinch to zoom."
+		+ "- Diverging route limit 25 MPH. Three strikes and you're done.\n" \
+		+ "- This is a heavy train: plan your stops. Dynamic brake (pull the throttle below idle) holds speed; air stops you.\n\n" \
+		+ "PC: W/S throttle & dynamic, D/A automatic brake, ] / [ independent, B bail, Space emergency,\n" \
+		+ "     H horn (hold), G bell, X sand, E line switch, Z zoom, drag the mouse to look.\n" \
+		+ "Phone: drag the three levers, hold HORN, drag the view to look, pinch to zoom."
 	v.add_child(how)
 	best_start_lbl = _label(22, Color(0.7, 1, 0.7))
 	best_start_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -304,9 +391,25 @@ func refresh() -> void:
 	var over: bool = g.speed * MPH > g.line_max() + 5.0
 	limit_lbl.text = "TRACK SPEED %d%s" % [g.line_max(), "   OVERSPEED!" if over else ""]
 	limit_lbl.add_theme_color_override("font_color", Color(1, 0.3, 0.3) if over else Color(0.8, 0.85, 0.95))
-	var brake_txt: String = "EMERGENCY" if g.emergency else g.BRAKE_NAMES[g.brake]
-	controls_lbl.text = "THROTTLE N%d   BRAKE %s" % [g.throttle, brake_txt]
-	air_lbl.text = "BRAKE PIPE %d PSI   CYL %d PSI" % [int(g.bp_psi), int(g.bc_psi)]
+	controls_lbl.text = "%s   AUTO %s   IND %d%%" % [g.lever_name(), g.auto_name(), int(g.ind_h * 100)]
+	air_lbl.text = "ER %d  BP %d  BC %d  LOCO %d PSI" % [int(g.er_psi), int(g.bp_psi), int(g.bc_psi), int(g.lbc_psi)]
+	var te_kn: float = minf(g.TE_MAX * g.power, g.P_MAX * g.power / maxf(g.speed, 1.5)) / 1000.0
+	var db_kn: float = g.DB_MAX * g.dyn / 1000.0
+	var ftxt := ("TE %d kN" % int(te_kn)) if te_kn > db_kn else ("DYN %d kN" % int(db_kn))
+	if g.sand:
+		ftxt += "   SAND"
+	if g.bell:
+		ftxt += "   BELL"
+	force_lbl.text = ftxt
+	alert_lbl.visible = g.running and g.alert_t > g.ALERT_WARN and int(g.time_s * 3) % 2 == 0
+	sl_lever.set_value_no_signal(g.lever)
+	sl_auto.set_value_no_signal(100.0 - (1.0 if g.emergency else g.auto_h / 0.86) * 100.0)
+	sl_ind.set_value_no_signal(100.0 - g.ind_h * 100.0)
+	lbl_lever.text = g.lever_name()
+	lbl_auto.text = "EMERG" if g.emergency else ("REL" if g.auto_h < 0.03 else ("FULL" if g.auto_h >= 0.85 else "%d LB" % int(90.0 - g._er_target(g.auto_h))))
+	lbl_ind.text = "%d PSI" % int(g.ind_h * 45.0)
+	btn_bell.text = "BELL\nON" if g.bell else "BELL"
+	btn_sand.text = "SAND\nON" if g.sand else "SAND"
 	score_lbl.text = "SCORE %d" % int(g.score)
 	strikes_lbl.text = "STRIKES  " + "X ".repeat(g.strikes) + "- ".repeat(maxi(0, 3 - g.strikes))
 	var info: Array = g.yardmaster_info()
