@@ -1,0 +1,69 @@
+name: Build Switch Challenge apps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "godot/**"
+      - ".github/workflows/build-game.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Godot export templates and Android settings
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/ ~/.config/
+          cp -r /root/.config/godot ~/.config/godot
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          ls ~/.config/godot
+
+      - name: Stamp version number
+        run: |
+          sed -i "s/^version\/code=.*/version\/code=${{ github.run_number }}/" godot/export_presets.cfg
+          sed -i "s/^version\/name=.*/version\/name=\"1.0.${{ github.run_number }}\"/" godot/export_presets.cfg
+
+      - name: Import project
+        run: |
+          cd godot
+          timeout 300 godot --headless --editor --quit || true
+
+      - name: Export Windows
+        run: |
+          mkdir -p build/windows build/android
+          cd godot
+          godot --headless --export-release "Windows Desktop" ../build/windows/SwitchChallenge.exe
+          test -f ../build/windows/SwitchChallenge.exe
+
+      - name: Export Android
+        run: |
+          cd godot
+          godot --headless --export-debug "Android" ../build/android/SwitchChallenge.apk
+          test -f ../build/android/SwitchChallenge.apk
+
+      - name: Show build sizes
+        run: ls -la build/windows build/android
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: game-build-${{ github.run_number }}
+          name: Switch Challenge build ${{ github.run_number }}
+          make_latest: true
+          body: |
+            **Android:** download `SwitchChallenge.apk` on your phone and open it to install (allow "install unknown apps" if asked).
+            **Windows PC:** download `SwitchChallenge.exe` and run it (click "More info" then "Run anyway" if Windows warns you).
+          files: |
+            build/android/SwitchChallenge.apk
+            build/windows/SwitchChallenge.exe
