@@ -21,6 +21,8 @@ const Quadrant = preload("res://scripts/quadrant.gd")
 var q_thr
 var q_auto
 var q_ind
+var q_db
+var db_btn: Button
 var btn_bell: Button
 var btn_sand: Button
 var alert_lbl: Label
@@ -229,33 +231,34 @@ func _build_controls() -> void:
 	var levers := HBoxContainer.new()
 	levers.add_theme_constant_override("separation", 6)
 	levers.alignment = BoxContainer.ALIGNMENT_CENTER
-	# throttle / dynamic brake: 18 detents, N8 at the top, B8 at the bottom
 	q_thr = Quadrant.new()
-	q_thr.title = "THROTTLE"
-	q_thr.snap = true
 	q_thr.knob = Color(0.1, 0.1, 0.1)
-	var names := ["8", "7", "6", "5", "4", "3", "2", "1", "IDLE", "SETUP", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
-	for k in names.size():
-		q_thr.stops.append([names[k], float(k) / 17.0])
-	q_thr.zones = [[0.0, 7.0 / 17.0, Color(0.2, 0.7, 0.3)], [10.0 / 17.0, 1.0, Color(0.95, 0.6, 0.15)]]
-	q_thr.moved.connect(func(v): game.set_lever(8 - int(round(v * 17.0))))
-	# automatic brake: release, minimum, service zone, full service, emergency
+	q_thr.snap = true
+	q_thr.moved.connect(_thr_moved)
+	q_db = Quadrant.new()
+	q_db.title = "DYN BRAKE"
+	q_db.knob = Color(0.1, 0.1, 0.1)
+	q_db.snap = true
+	var dbn := ["OFF", "SETUP", "1", "2", "3", "4", "5", "6", "7", "8"]
+	for k in dbn.size():
+		q_db.stops.append([dbn[k], float(k) / 9.0])
+	q_db.zones = [[2.0 / 9.0, 1.0, Color(0.95, 0.6, 0.15)]]
+	q_db.moved.connect(func(v): game.set_db(int(round(v * 9.0)) - 1))
 	q_auto = Quadrant.new()
 	q_auto.title = "AUTO BRAKE"
 	q_auto.knob = Color(0.72, 0.1, 0.08)
-	q_auto.stops = [["REL", 0.0], ["MIN", 0.12], ["SVC", 0.45], ["FULL", 0.78], ["EMERG", 1.0]]
-	q_auto.zones = [[0.12, 0.78, Color(0.85, 0.75, 0.2)], [0.9, 1.0, Color(0.9, 0.15, 0.1)]]
+	q_auto.zones = [[0.1, 0.62, Color(0.85, 0.75, 0.2)], [0.66, 0.86, Color(0.6, 0.6, 0.6)], [0.91, 1.0, Color(0.9, 0.15, 0.1)]]
 	q_auto.moved.connect(_auto_moved)
-	# independent brake
 	q_ind = Quadrant.new()
 	q_ind.title = "IND BRAKE"
 	q_ind.knob = Color(0.15, 0.15, 0.15)
 	q_ind.stops = [["REL", 0.0], ["", 0.5], ["FULL", 1.0]]
 	q_ind.zones = [[0.0, 1.0, Color(0.3, 0.5, 0.9)]]
 	q_ind.moved.connect(func(v): game.set_ind(v))
-	for q in [q_thr, q_auto, q_ind]:
+	for q in [q_thr, q_db, q_auto, q_ind]:
 		levers.add_child(q)
 	col.add_child(levers)
+	configure_controls()
 	var em := _button("EMERGENCY", Vector2(0, 54), func(): game.emergency_brake(), Color(0.7, 0.05, 0.05, 0.95), 22)
 	col.add_child(em)
 	root.add_child(panel)
@@ -266,6 +269,9 @@ func _build_controls() -> void:
 	btn_zoom = _button("ZOOM\nSWITCH", Vector2(150, 84), func(): game.toggle_zoom(), Color(0.15, 0.25, 0.4, 0.9), 22)
 	lv.add_child(btn_zoom)
 	lv.add_child(_button("LOOK\nAHEAD", Vector2(150, 70), func(): _look_ahead(), Color(0.15, 0.25, 0.4, 0.9), 20))
+	var al := _button("ALERTER", Vector2(150, 64), func(): game.alerter_reset(), Color(0.85, 0.7, 0.1, 0.95), 20)
+	al.add_theme_color_override("font_color", Color(0.1, 0.1, 0.1))
+	lv.add_child(al)
 	root.add_child(lv)
 	# centre: line switch
 	btn_line = _button("LINE SWITCH", Vector2(300, 90), func(): game.line_switch(), Color(0.85, 0.5, 0.05, 0.95), 28)
@@ -273,15 +279,61 @@ func _build_controls() -> void:
 	btn_line.visible = false
 	root.add_child(btn_line)
 
+func configure_controls() -> void:
+	if q_thr == null:
+		return
+	var split: bool = game.split_db
+	q_thr.stops.clear()
+	q_thr.zones.clear()
+	if split:
+		q_thr.title = "THROTTLE"
+		var names := ["8", "7", "6", "5", "4", "3", "2", "1", "IDLE"]
+		for k in names.size():
+			q_thr.stops.append([names[k], float(k) / 8.0])
+		q_thr.zones = [[0.0, 1.0, Color(0.2, 0.7, 0.3)]]
+	else:
+		q_thr.title = "THROTTLE"
+		var names2 := ["8", "7", "6", "5", "4", "3", "2", "1", "IDLE", "SETUP", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
+		for k in names2.size():
+			q_thr.stops.append([names2[k], float(k) / 17.0])
+		q_thr.zones = [[0.0, 7.0 / 17.0, Color(0.2, 0.7, 0.3)], [10.0 / 17.0, 1.0, Color(0.95, 0.6, 0.15)]]
+	q_db.visible = split and game.has_db
+	var off_name := "H.OFF" if game.LOCOS[game.loco_model]["brake"] == "26L" else "C.OFF"
+	q_auto.title = "AUTO BRAKE " + game.LOCOS[game.loco_model]["brake"]
+	q_auto.stops = [["REL", 0.0], ["MIN", 0.1], ["SVC", 0.36], ["FULL", 0.62], ["SUPP", 0.72], [off_name, 0.82], ["EMERG", 1.0]]
+	for q in [q_thr, q_db, q_auto]:
+		q.queue_redraw()
+
+func _thr_moved(v: float) -> void:
+	if game.split_db:
+		game.set_throttle(8 - int(round(v * 8.0)))
+	else:
+		game.set_lever(8 - int(round(v * 17.0)))
+
+func _auto_t(h: float, em: bool) -> float:
+	if em:
+		return 1.0
+	if h < 0.03:
+		return 0.0
+	if h >= 0.93:
+		return 0.82
+	if h >= 0.88:
+		return 0.72
+	return 0.1 + (h - 0.06) / 0.8 * 0.52
+
 func _auto_moved(v: float) -> void:
-	if v > 0.9:
+	if v > 0.91:
 		game.emergency_brake()
+	elif v >= 0.77:
+		game.set_auto(0.95)
+	elif v >= 0.67:
+		game.set_auto(0.9)
 	elif v < 0.05:
 		game.set_auto(0.0)
-	elif v < 0.12:
+	elif v < 0.1:
 		game.set_auto(0.06)
 	else:
-		game.set_auto(0.06 + (v - 0.12) / 0.66 * 0.8)
+		game.set_auto(minf(0.86, 0.06 + (v - 0.1) / 0.52 * 0.8))
 
 func _look_ahead() -> void:
 	game.look_yaw = 0.0
@@ -350,20 +402,30 @@ func _build_start() -> void:
 	pick.alignment = BoxContainer.ALIGNMENT_CENTER
 	pick.add_theme_constant_override("separation", 12)
 	loco_btns = []
-	for opt in [["modern", "MODERN WIDE CAB\nES44AC - desktop"], ["classic", "CLASSIC HOOD UNIT\nGP38-2 - AAR stand"]]:
+	for opt in [["modern", "MODERN WIDE CAB\nES44AC - desktop"], ["classic", "CLASSIC HOOD UNIT\nshort hood forward"], ["classic_lhf", "CLASSIC HOOD UNIT\nlong hood forward"]]:
 		var kind: String = opt[0]
-		var lb := _button(opt[1], Vector2(280, 62), func(): _pick_loco(kind), Color(0.15, 0.22, 0.35, 0.95), 17)
+		var lb := _button(opt[1], Vector2(240, 58), func(): _pick_loco(kind), Color(0.15, 0.22, 0.35, 0.95), 15)
 		lb.set_meta("kind", kind)
 		loco_btns.append(lb)
 		pick.add_child(lb)
 	v.add_child(pick)
+	db_btn = _button("", Vector2(360, 40), func(): game.set_classic_db(not game.classic_db); _update_db_btn(), Color(0.2, 0.2, 0.24, 0.95), 15)
+	db_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(db_btn)
 	_pick_loco(game.loco_model)
 	var b := _button("DEPART", Vector2(280, 66), func(): game.start_game(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
 
+func _update_db_btn() -> void:
+	if db_btn == null:
+		return
+	db_btn.visible = game.loco_model.begins_with("classic")
+	db_btn.text = "Classic unit dynamic brake:  " + ("EQUIPPED" if game.classic_db else "NOT EQUIPPED")
+
 func _pick_loco(kind: String) -> void:
 	game.set_loco(kind)
+	_update_db_btn()
 	for lb in loco_btns:
 		var on: bool = lb.get_meta("kind") == kind
 		lb.add_theme_stylebox_override("normal", _style(Color(0.85, 0.55, 0.1, 0.95) if on else Color(0.15, 0.22, 0.35, 0.95), 12, Color(1, 1, 1, 0.5 if on else 0.25)))
@@ -442,14 +504,20 @@ func refresh() -> void:
 		ftxt += "   BELL"
 	force_lbl.text = ftxt
 	alert_lbl.visible = g.running and g.alert_t > g.ALERT_WARN and int(g.time_s * 3) % 2 == 0
-	q_thr.set_t(float(8 - g.lever) / 17.0)
-	q_thr.value_text = g.lever_name()
+	if g.split_db:
+		q_thr.set_t(float(8 - maxi(g.lever, 0)) / 8.0)
+		q_thr.value_text = "N%d" % g.lever if g.lever > 0 else "IDLE"
+		q_db.set_t(float((-g.lever - 1) + 1) / 9.0 if g.lever < 0 else 0.0)
+		q_db.value_text = "OFF" if g.lever >= 0 else ("SETUP" if g.lever == -1 else "DB%d" % (-g.lever - 1))
+	else:
+		q_thr.set_t(float(8 - g.lever) / 17.0)
+		q_thr.value_text = g.lever_name()
 	var ah: float = g.auto_h
-	q_auto.set_t(1.0 if g.emergency else (0.0 if ah < 0.03 else 0.12 + (ah - 0.06) / 0.8 * 0.66))
-	q_auto.value_text = "EMERG" if g.emergency else ("REL" if ah < 0.03 else ("FULL" if ah >= 0.85 else "%d LB" % int(90.0 - g._er_target(ah))))
+	q_auto.set_t(_auto_t(ah, g.emergency))
+	q_auto.value_text = "EMERG" if g.emergency else ("REL" if ah < 0.03 else ("H.OFF" if ah >= 0.93 else ("SUPP" if ah >= 0.88 else ("FULL" if ah >= 0.85 else "%d LB" % int(90.0 - g._er_target(ah))))))
 	q_ind.set_t(g.ind_h)
 	q_ind.value_text = "%d PSI" % int(g.lbc_psi)
-	for q in [q_thr, q_auto, q_ind]:
+	for q in [q_thr, q_db, q_auto, q_ind]:
 		q.queue_redraw()
 	btn_bell.text = "BELL\nON" if g.bell else "BELL"
 	btn_sand.text = "SAND\nON" if g.sand else "SAND"

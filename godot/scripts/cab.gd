@@ -72,10 +72,13 @@ func _materials() -> void:
 	m["g_speed"] = _decal("res://textures/gauge_speed.png", Vector2.ONE, Vector2.ZERO, true)
 	m["g_er"] = _decal("res://textures/gauge_air_er.png", Vector2.ONE, Vector2.ZERO, true)
 	m["g_mr"] = _decal("res://textures/gauge_air_mr.png", Vector2.ONE, Vector2.ZERO, true)
-	m["seat"] = _mat(Color(0.3, 0.27, 0.25), 0.95)
+	m["seat"] = _tri("res://textures/seat_worn.png", 1.6, 0.95)
+	m["grip"] = _tri("res://textures/grip.png", 6.0, 0.55, 0.4)
+	m["porcelain"] = _mat(Color(0.88, 0.88, 0.84), 0.25)
+	m["nose_dark"] = _mat(Color(0.18, 0.17, 0.15), 0.95)
 	m["seat_dark"] = _mat(Color(0.12, 0.12, 0.13), 0.8)
 	m["steel_dark"] = _mat(Color("262422"), 0.72, 0.35)
-	m["steel"] = _mat(Color(0.6, 0.6, 0.6), 0.4, 0.7)
+	m["steel"] = _mat(Color(0.45, 0.44, 0.42), 0.55, 0.6)
 	m["black"] = _mat(Color("111214"), 0.6)
 	m["rubber"] = _mat(Color(0.05, 0.05, 0.05), 0.9)
 	m["handrail"] = _mat(Color("e2c021"), 0.45, 0.2)
@@ -227,6 +230,10 @@ func screen(p: Node, w: float, h: float, pos: Vector3, rot: Vector3, kind: Strin
 	s.position += s.basis.z * 0.021
 	s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
+func _commas(n: int) -> String:
+	var t := str(n)
+	return t if t.length() <= 3 else t.left(t.length() - 3) + "," + t.right(3)
+
 func _lbl(root: Control, pos: Vector2, size: int, col: Color, text: String = "") -> Label:
 	var l := Label.new()
 	l.position = pos
@@ -264,27 +271,46 @@ func _build_eng(root: Control) -> void:
 	ui["e_flags"] = _lbl(root, Vector2(12, 336), 24, Color(1, 0.4, 0.3), "")
 
 func _build_ptc(root: Control) -> void:
-	_rect(root, Vector2(0, 0), Vector2(512, 40), Color(0.05, 0.35, 0.15))
-	_lbl(root, Vector2(12, 4), 26, Color.WHITE, "PTC   ACTIVE")
-	_lbl(root, Vector2(16, 52), 20, Color(0.7, 0.75, 0.8), "SPEED")
-	ui["p_speed"] = _lbl(root, Vector2(16, 72), 64, Color.WHITE, "0")
-	_rect(root, Vector2(170, 52), Vector2(120, 120), Color(0.95, 0.95, 0.92))
-	_lbl(root, Vector2(186, 56), 18, Color.BLACK, "SPEED LIMIT")
-	ui["p_limit"] = _lbl(root, Vector2(196, 80), 60, Color.BLACK, "40")
-	_lbl(root, Vector2(310, 52), 20, Color(0.7, 0.75, 0.8), "TARGET")
-	ui["p_target"] = _lbl(root, Vector2(310, 72), 30, Color(1, 0.85, 0.3), "--")
-	ui["p_target2"] = _lbl(root, Vector2(310, 112), 22, Color(1, 0.85, 0.3), "")
-	_rect(root, Vector2(16, 196), Vector2(480, 6), Color(0.85, 0.85, 0.85))
-	ui["p_marker"] = _rect(root, Vector2(16, 182), Vector2(6, 34), Color(1, 0.6, 0.1))
-	_lbl(root, Vector2(16, 220), 16, Color(0.6, 0.6, 0.6), "0")
-	_lbl(root, Vector2(440, 220), 16, Color(0.6, 0.6, 0.6), "2 MI")
-	ui["p_next"] = _lbl(root, Vector2(16, 250), 24, Color(1, 0.85, 0.3), "")
-	ui["p_next2"] = _lbl(root, Vector2(16, 284), 22, Color(0.8, 0.85, 0.9), "")
-	ui["p_warn"] = _lbl(root, Vector2(16, 330), 26, Color(1, 0.35, 0.3), "")
+	_rect(root, Vector2(0, 0), Vector2(512, 36), Color(0.05, 0.35, 0.15))
+	_lbl(root, Vector2(10, 3), 22, Color.WHITE, "PTC  ACTIVE")
+	ui["p_mp"] = _lbl(root, Vector2(190, 5), 20, Color(0.85, 1, 0.85), "A-LINE SUB  MP 0.0")
+	_lbl(root, Vector2(10, 42), 16, Color(0.7, 0.75, 0.8), "SPEED")
+	ui["p_speed"] = _lbl(root, Vector2(10, 56), 54, Color.WHITE, "0")
+	_rect(root, Vector2(112, 42), Vector2(92, 92), Color(0.95, 0.95, 0.92))
+	_lbl(root, Vector2(118, 44), 13, Color.BLACK, "SPEED LIMIT")
+	ui["p_limit"] = _lbl(root, Vector2(128, 60), 48, Color.BLACK, "40")
+	_lbl(root, Vector2(216, 42), 16, Color(0.7, 0.75, 0.8), "NEXT TARGET")
+	ui["p_target"] = _lbl(root, Vector2(216, 60), 22, Color(1, 0.85, 0.3), "--")
+	ui["p_target2"] = _lbl(root, Vector2(216, 88), 30, Color(1, 0.85, 0.3), "")
+	# distance-to-target bar (fills as you close in)
+	_rect(root, Vector2(216, 124), Vector2(284, 10), Color(0.15, 0.15, 0.18))
+	ui["p_bar"] = _rect(root, Vector2(216, 124), Vector2(0, 10), Color(1, 0.6, 0.1))
+	# 2-mile track strip with markers
+	_rect(root, Vector2(10, 150), Vector2(490, 4), Color(0.8, 0.8, 0.8))
+	ui["p_marks"] = []
+	for k in 8:
+		var mk := _rect(root, Vector2(10, 140), Vector2(4, 24), Color(1, 0.6, 0.1))
+		mk.visible = false
+		ui["p_marks"].append(mk)
+	_lbl(root, Vector2(10, 164), 13, Color(0.6, 0.6, 0.6), "0")
+	_lbl(root, Vector2(470, 164), 13, Color(0.6, 0.6, 0.6), "2 MI")
+	_rect(root, Vector2(0, 184), Vector2(512, 2), Color(0.3, 0.4, 0.35))
+	_lbl(root, Vector2(10, 188), 15, Color(0.6, 0.8, 0.65), "AHEAD                                      DISTANCE")
+	ui["p_rows"] = []
+	for k in 6:
+		var row := _lbl(root, Vector2(10, 208 + k * 26), 19, Color(0.9, 0.92, 0.9), "")
+		var dist := _lbl(root, Vector2(390, 208 + k * 26), 19, Color(1, 0.85, 0.4), "")
+		ui["p_rows"].append([row, dist])
+	ui["p_warn"] = _lbl(root, Vector2(300, 42), 18, Color(1, 0.35, 0.3), "")
 
 # ================================================================ build
-func build(kind: String) -> Node3D:
+var has_db: bool = true
+var pickables: Array = []
+
+func build(kind: String, dyn_brake: bool = true) -> Node3D:
 	model = kind
+	has_db = dyn_brake
+	pickables.clear()
 	_materials()
 	needles.clear()
 	ui.clear()
@@ -292,10 +318,13 @@ func build(kind: String) -> Node3D:
 	_vp_tex.clear()
 	lever_db = null
 	var L := Node3D.new()
-	if kind == "classic":
+	if kind == "classic" or kind == "classic_lhf":
 		eye = Vector3(0.78, 0.0, 1.08)
-		_exterior_classic(L)
-		_interior_classic(L)
+		if kind == "classic_lhf":
+			_exterior_lhf(L)
+		else:
+			_exterior_classic(L)
+		_interior_classic(L, kind == "classic")
 	else:
 		eye = Vector3(0.86, 0.0, 1.08)
 		_exterior_modern(L)
@@ -357,6 +386,45 @@ func _exterior_classic(L: Node) -> void:
 	_railings(L, deck_y, -0.05, -4.45, [-1.46, 1.46], 0.45)
 	_railings(L, deck_y, 2.75, 13.45, [-1.46, 1.46], 0.45)
 
+func _exterior_lhf(L: Node) -> void:
+	var deck_y := -2.05
+	var hood_len := 13.6
+	var front_end := -hood_len - 1.2
+	var w := 3.04
+	var total := absf(front_end) + 4.6
+	box(L, w, 0.12, total, m["deck"], 0, deck_y, (4.6 + front_end) / 2.0)
+	for s in [-1.0, 1.0]:
+		box(L, 0.05, 0.05, total, m["yellow"], s * w / 2.0, deck_y + 0.07, (4.6 + front_end) / 2.0)
+	_deck_end(L, deck_y, front_end, w, -1.0)
+	_deck_end(L, deck_y, 4.6, w, 1.0)
+	for s in [-1.0, 1.0]:
+		var sx: float = s * (w / 2.0 - 0.3)
+		box(L, 0.28, 0.28, 0.2, m["black"], sx, deck_y + 0.25, front_end + 0.12)
+		var dl := cyl(L, 0.1, 0.1, 0.02, m["ditch"], Vector3(sx, deck_y + 0.25, front_end + 0.015), 16)
+		dl.rotation.x = PI / 2.0
+	var hw := 1.8
+	var hh := 1.55
+	box(L, hw, hh, hood_len - 3.4, m["hood"], 0, deck_y + hh / 2.0 + 0.06, -(hood_len - 3.4) / 2.0 - 0.1)
+	box(L, 2.6, hh + 0.12, 3.3, m["hood"], 0, deck_y + (hh + 0.12) / 2.0 + 0.06, -hood_len + 1.55)
+	for z in [-hood_len + 0.75, -hood_len + 2.15]:
+		cyl(L, 0.62, 0.62, 0.02, m["fan"], Vector3(0, deck_y + hh + 0.19, z), 24)
+	box(L, 0.42, 0.22, 0.9, m["black"], 0, deck_y + hh + 0.17, -6.2)        # exhaust stack
+	for z in [-3.6, -8.8]:
+		var r := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.055
+		tm.outer_radius = 0.085
+		r.mesh = tm
+		r.material_override = m["steel_dark"]
+		r.position = Vector3(0, deck_y + hh + 0.08, z)
+		r.rotation = Vector3(0, 0, PI / 2.0)
+		L.add_child(r)
+	box(L, 0.06, 0.06, hood_len - 0.4, m["steel_dark"], hw / 2.0 + 0.02, deck_y + hh + 0.02, -hood_len / 2.0)
+	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(0.5, deck_y + hh + 0.24, -hood_len + 0.4), 16)
+	box(L, 1.82, 1.25, 2.8, m["hood"], 0, deck_y + 0.68, 3.85)    # short hood behind the cab
+	_railings(L, deck_y, -0.05, front_end + 0.15, [-1.46, 1.46], 0.45)
+	_railings(L, deck_y, 2.75, 4.45, [-1.46, 1.46], 0.45)
+
 func _railings(p: Node, deck_y: float, z0: float, z1: float, xs: Array, step_gap_x: float) -> void:
 	var top := deck_y + 1.05
 	var mid := deck_y + 0.55
@@ -382,12 +450,20 @@ func _deck_end(p: Node, deck_y: float, z_end: float, w: float, dir_z: float) -> 
 			box(p, 0.55, 0.04, 0.3, m["yellow"], s * (w / 2.0 - 0.35), deck_y - 0.35 - i * 0.38, z_end - dir_z * 0.25)
 
 # ---------------------------------------------------------------- shared cab shell
-func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, sill_y: float, top_y: float, win_xs: Array, win_w: float, wall: Material, rounded: bool) -> void:
+func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, sill_y: float, top_y: float, win_xs: Array, win_w: float, wall: Material, rounded: bool, nose_gap: Vector2 = Vector2.ZERO) -> void:
 	var half_w := w / 2.0
 	box(p, w - 0.08, 0.06, cab_len, m["floor"], 0, floor_y, cab_len / 2.0)
 	box(p, w + 0.08, 0.14, cab_len + 0.2, m["paint"], 0, ceil_y + 0.12, cab_len / 2.0 - 0.05)
 	box(p, w - 0.1, 0.05, cab_len, wall, 0, ceil_y, cab_len / 2.0)
-	box(p, w, sill_y - floor_y, 0.1, wall, 0, (sill_y + floor_y) / 2.0, 0.0)
+	if nose_gap == Vector2.ZERO:
+		box(p, w, sill_y - floor_y, 0.1, wall, 0, (sill_y + floor_y) / 2.0, 0.0)
+	else:
+		# opening (x half-width, top y) down into the nose
+		var gx := nose_gap.x
+		var gt := nose_gap.y
+		box(p, half_w - gx, sill_y - floor_y, 0.1, wall, -(half_w + gx) / 2.0, (sill_y + floor_y) / 2.0, 0.0)
+		box(p, half_w - gx, sill_y - floor_y, 0.1, wall, (half_w + gx) / 2.0, (sill_y + floor_y) / 2.0, 0.0)
+		box(p, gx * 2.0, sill_y - gt, 0.1, wall, 0, (sill_y + gt) / 2.0, 0.0)
 	box(p, w, ceil_y - top_y, 0.1, wall, 0, (ceil_y + top_y) / 2.0, 0.0)
 	var edges: Array = [-half_w]
 	for x in win_xs:
@@ -493,7 +569,7 @@ func _interior_modern(p: Node) -> void:
 		box(tb, 0.05, 0.004, 0.004, m["steel"], 0.05, 0.027, -0.12 + i * 0.03)
 	lever_thr = pivot(tb, Vector3(0, 0.02, 0))
 	box(lever_thr, 0.025, 0.16, 0.025, m["steel"], 0, 0.08, 0)
-	box(lever_thr, 0.07, 0.04, 0.05, m["black"], 0, 0.17, 0)
+	box(lever_thr, 0.07, 0.04, 0.05, m["grip"], 0, 0.17, 0)
 	var rv := pivot(p, Vector3(0.22, desk_y + 0.04, 0.5))
 	box(rv, 0.06, 0.05, 0.12, m["console"], 0, 0, 0)
 	var rh := box(rv, 0.02, 0.09, 0.02, m["steel"], 0, 0.06, -0.03)
@@ -501,6 +577,7 @@ func _interior_modern(p: Node) -> void:
 	ball(rv, 0.018, m["black"], Vector3(0, 0.1, -0.05))
 	# alerter + switch strip on the desk top
 	cyl(p, 0.035, 0.035, 0.03, m["alerter"], Vector3(0.78, desk_y + 0.055, 0.5), 16)
+	_pickable(p, Vector3(0.78, desk_y + 0.055, 0.5), 0.07, "alerter")
 	box(p, 0.22, 0.03, 0.1, m["console"], 1.02, desk_y + 0.05, 0.5)
 	var sw_mats := [m["red"], m["steel"], m["steel"], m["alerter"]]
 	for i in 4:
@@ -515,7 +592,7 @@ func _interior_modern(p: Node) -> void:
 	ball(lever_auto, 0.035, m["knob_red"], Vector3(0, 0.18, 0))
 	lever_ind = pivot(bs, Vector3(0, 0.03, 0.1))
 	box(lever_ind, 0.03, 0.14, 0.03, m["steel"], 0, 0.07, 0)
-	ball(lever_ind, 0.03, m["black"], Vector3(0, 0.15, 0))
+	ball(lever_ind, 0.03, m["grip"], Vector3(0, 0.15, 0))
 	quad(p, 0.22, 0.11, m["warn"], Vector3(1.53, desk_y + 0.25, 0.75), Vector3(0, -PI / 2.0, 0))
 	_radio(p, Vector3(1.47, 0.05, 1.75), Vector3(0, -PI / 2.0, 0))
 	# overhead consoles above the windshields
@@ -541,52 +618,94 @@ func _interior_modern(p: Node) -> void:
 	_mirrors(p, w / 2.0, -0.05)
 
 # ---------------------------------------------------------------- classic AAR-stand cab
-func _interior_classic(p: Node) -> void:
+func _interior_classic(p: Node, nose_forward: bool) -> void:
 	var w := 3.02
 	var floor_y := -1.35
 	var sill_y := -0.3
 	var top_y := 0.42
 	var beige: Material = m["wall_beige"]
-	_shell(p, w, 2.6, floor_y, 0.62, sill_y, top_y, [-0.82, 0.82], 0.95, beige, true)
-	box(p, 0.5, 0.3, 0.3, beige, 0, sill_y + 0.2, 0.12)
+	var gap := Vector2(0.3, -0.68) if nose_forward else Vector2.ZERO
+	_shell(p, w, 2.6, floor_y, 0.62, sill_y, top_y, [-0.82, 0.82], 0.95, beige, true, gap)
+	# conductor's side: the left front opening is a DOOR out to the nose walkway
+	var dx := -0.82
+	box(p, 0.8, sill_y - floor_y - 0.04, 0.05, m["wall_beige"], dx, (sill_y + floor_y) / 2.0, 0.07)
+	for e in [[0.8, 0.03, dx, top_y - 0.02], [0.8, 0.03, dx, floor_y + 0.04]]:
+		box(p, e[0], e[1], 0.06, m["rubber"], e[2], e[3], 0.07)
+	box(p, 0.03, top_y - floor_y, 0.06, m["rubber"], dx - 0.4, (top_y + floor_y) / 2.0, 0.07)
+	box(p, 0.03, top_y - floor_y, 0.06, m["rubber"], dx + 0.4, (top_y + floor_y) / 2.0, 0.07)
+	box(p, 0.16, 0.04, 0.05, m["steel"], dx + 0.3, -0.55, 0.12)        # latch handle
+	for hy in [-1.1, -0.1]:
+		box(p, 0.05, 0.14, 0.04, m["steel_dark"], dx - 0.38, hy, 0.1)  # hinges
+	quad(p, 0.3, 0.15, m["warn"], Vector3(dx, -0.85, 0.1), Vector3.ZERO)
+	if nose_forward:
+		# step down into the short hood: toilet compartment
+		var nf := floor_y - 0.42
+		box(p, 0.58, 0.06, 0.32, m["floor"], 0, floor_y - 0.2, -0.18)          # step
+		box(p, 0.85, 0.06, 1.5, m["floor"], 0, nf, -0.85)
+		box(p, 0.06, 0.95, 1.5, m["nose_dark"], -0.44, nf + 0.48, -0.85)
+		box(p, 0.06, 0.95, 1.5, m["nose_dark"], 0.44, nf + 0.48, -0.85)
+		box(p, 0.85, 0.95, 0.06, m["nose_dark"], 0, nf + 0.48, -1.6)
+		box(p, 0.85, 0.06, 1.5, m["nose_dark"], 0, -0.66, -0.85)
+		cyl(p, 0.17, 0.13, 0.38, m["porcelain"], Vector3(0, nf + 0.2, -1.25), 16)   # toilet bowl
+		box(p, 0.4, 0.06, 0.42, m["porcelain"], 0, nf + 0.4, -1.25)
+		box(p, 0.38, 0.4, 0.16, m["porcelain"], 0, nf + 0.6, -1.5)                   # tank
+		box(p, 0.12, 0.12, 0.04, m["dome"], 0.2, -0.72, -1.2)                        # dim light
+		box(p, 0.25, 0.3, 0.12, m["steel"], -0.3, nf + 0.6, -0.5)                     # paper holder / sink
 	# AAR control stand to the engineer's left
 	var st := pivot(p, Vector3(0.3, 0, 0.62))
 	box(st, 0.36, -0.42 - floor_y, 0.55, beige, 0, (-0.42 + floor_y) / 2.0, 0)
 	box(st, 0.3, 0.32, 0.5, m["console"], 0.02, -0.25, -0.02)
 	quad(st, 0.48, 0.3, m["switches_beige"], Vector3(0.175, -0.25, -0.02), Vector3(0, PI / 2.0, 0))
-	var gh := pivot(st, Vector3(0.05, -0.02, -0.22), Vector3(-0.35, -0.55, 0))
+	# gauge housing on top, turned toward the engineer and tilted up
+	var gh := pivot(st, Vector3(0.06, -0.02, -0.18), Vector3(-0.32, 0.62, 0))
 	box(gh, 0.62, 0.2, 0.08, m["black"], 0, 0, 0)
 	gauge(gh, "g_speed", 0.075, Vector3(-0.2, 0, 0.045), ["speed"], [Color(1, 1, 1)])
 	gauge(gh, "g_er", 0.075, Vector3(0, 0, 0.045), ["bp", "er"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
 	gauge(gh, "g_mr", 0.075, Vector3(0.2, 0, 0.045), ["mr", "bc"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
-	lever_thr = pivot(st, Vector3(0.2, -0.32, 0.0))
-	box(lever_thr, 0.28, 0.025, 0.025, m["steel"], 0.12, 0, 0)
-	box(lever_thr, 0.06, 0.035, 0.035, m["black"], 0.27, 0, 0)
-	lever_db = pivot(st, Vector3(0.2, -0.2, 0.12))
-	box(lever_db, 0.2, 0.02, 0.02, m["steel"], 0.09, 0, 0)
-	ball(lever_db, 0.022, m["black"], Vector3(0.2, 0, 0))
-	box(st, 0.06, 0.03, 0.12, m["steel"], 0.21, -0.42, -0.1)
+	# throttle (and dynamic brake if equipped): handles stick out toward the engineer
+	lever_thr = pivot(st, Vector3(0.19, -0.33, 0.0))
+	box(lever_thr, 0.2, 0.022, 0.022, m["steel"], 0.1, 0, 0)
+	box(lever_thr, 0.07, 0.034, 0.034, m["grip"], 0.22, 0, 0)
+	if has_db:
+		lever_db = pivot(st, Vector3(0.19, -0.2, 0.12))
+		box(lever_db, 0.16, 0.02, 0.02, m["steel"], 0.08, 0, 0)
+		ball(lever_db, 0.02, m["grip"], Vector3(0.17, 0, 0))
+	box(st, 0.06, 0.03, 0.1, m["steel"], 0.2, -0.43, -0.1)                         # reverser
 	var al := cyl(st, 0.03, 0.03, 0.03, m["alerter"], Vector3(0.19, -0.1, -0.2), 14)
 	al.rotation.z = PI / 2.0
+	_pickable(st, Vector3(0.19, -0.1, -0.2), 0.07, "alerter")
 	# 26L brake valve on its pedestal, ahead-left of the engineer's seat
 	var bv := pivot(p, Vector3(0.42, 0, 1.0))
 	cyl(bv, 0.08, 0.1, -0.72 - floor_y, m["console"], Vector3(0, (-0.72 + floor_y) / 2.0, 0), 12)
 	box(bv, 0.26, 0.14, 0.26, m["console"], 0, -0.66, 0)
 	lever_auto = pivot(bv, Vector3(0, -0.57, 0))
-	box(lever_auto, 0.03, 0.03, 0.32, m["steel"], 0, 0, -0.16)
-	ball(lever_auto, 0.03, m["black"], Vector3(0, 0, -0.32))
+	box(lever_auto, 0.03, 0.03, 0.3, m["steel"], 0, 0, -0.15)
+	ball(lever_auto, 0.03, m["grip"], Vector3(0, 0, -0.3))
 	lever_ind = pivot(bv, Vector3(0, -0.52, 0))
-	box(lever_ind, 0.025, 0.025, 0.26, m["steel"], 0, 0, -0.13)
-	var pk := cyl(lever_ind, 0.022, 0.022, 0.1, m["knob_pink"], Vector3(0, 0, -0.27), 10)
+	box(lever_ind, 0.025, 0.025, 0.24, m["steel"], 0, 0, -0.12)
+	var pk := cyl(lever_ind, 0.022, 0.022, 0.1, m["knob_pink"], Vector3(0, 0, -0.25), 10)
 	pk.rotation.x = PI / 2.0
-	box(p, 0.4, 0.55, 0.3, m["steel_dark"], 1.15, floor_y + 0.28, 0.35)
-	_radio(p, Vector3(-0.95, sill_y - 0.15, 0.12), Vector3.ZERO)
-	quad(p, 0.22, 0.11, m["warn"], Vector3(-0.3, sill_y - 0.25, 0.06), Vector3.ZERO)
-	box(p, 0.9, 0.04, 0.4, beige, -0.95, -0.72, 0.3)
-	quad(p, 0.2, 0.27, m["paper"], Vector3(-0.9, -0.69, 0.32), Vector3(-PI / 2.0, 0.1, 0))
+	box(p, 0.4, 0.55, 0.3, m["steel_dark"], 1.15, floor_y + 0.28, 0.35)            # cab heater
+	# PTC display retrofitted onto the front wall
+	var pm := pivot(p, Vector3(1.12, sill_y - 0.2, 0.12), Vector3(-0.15, -0.35, 0))
+	box(pm, 0.06, 0.06, 0.1, m["steel_dark"], 0, 0, -0.05)
+	screen(pm, 0.3, 0.22, Vector3(0, 0, 0.03), Vector3.ZERO, "ptc")
+	_radio(p, Vector3(1.42, 0.05, 1.55), Vector3(0, -PI / 2.0, 0))
 	_seat(p, 0.8, floor_y, 1.3, m["seat"])
-	_seat(p, -0.8, floor_y, 1.3, m["seat"])
+	_seat(p, -0.8, floor_y, 1.4, m["seat"])
 	_mirrors(p, w / 2.0, -0.05)
+
+func _pickable(p: Node, pos: Vector3, r: float, action: String) -> void:
+	var body := StaticBody3D.new()
+	body.position = pos
+	var cs := CollisionShape3D.new()
+	var sh := SphereShape3D.new()
+	sh.radius = r
+	cs.shape = sh
+	body.add_child(cs)
+	body.set_meta("action", action)
+	p.add_child(body)
+	pickables.append(body)
 
 func _mirrors(p: Node, half_w: float, y: float) -> void:
 	for side in [-1.0, 1.0]:
@@ -603,7 +722,7 @@ func update(s: Dictionary) -> void:
 	var auto_h: float = s["auto_h"]
 	var ind_h: float = s["ind_h"]
 	var em: bool = s["emergency"]
-	if model == "classic":
+	if model.begins_with("classic"):
 		if lever_thr:
 			lever_thr.rotation.y = float(maxi(lever, 0)) / 8.0 * 0.9
 		if lever_db:
@@ -627,39 +746,58 @@ func update(s: Dictionary) -> void:
 	if ui.is_empty():
 		return
 	var mph: int = s["mph"]
-	ui["e_title"].text = ("LOCO 2271   GP38-2" if model == "classic" else "LOCO 8062   ES44AC") + "   MAIN"
-	ui["e_speed"].text = str(mph)
-	ui["e_lever"].text = s["lever_name"]
-	ui["e_te"].text = "%d kN" % int(s["te_kn"])
-	ui["e_te_bar"].size.x = 296.0 * clampf(s["te_kn"] / 430.0, 0.0, 1.0)
-	ui["e_db"].text = "%d kN" % int(s["db_kn"])
-	ui["e_db_bar"].size.x = 296.0 * clampf(s["db_kn"] / 300.0, 0.0, 1.0)
-	ui["e_air1"].text = "EQ RES %d   BRK PIPE %d   MAIN RES 140" % [int(s["er"]), int(s["bp"])]
-	ui["e_air2"].text = "BRK CYL %d   LOCO CYL %d   FLOW %d" % [int(s["bc"]), int(s["lbc"]), int(s["flow"])]
-	var flags := ""
-	if em:
-		flags += "EMERGENCY  "
-	if s["alert"]:
-		flags += "ALERTER  "
-	if s["sand"]:
-		flags += "SAND  "
-	if s["bell"]:
-		flags += "BELL"
-	ui["e_flags"].text = flags
+	if ui.has("e_speed"):
+		ui["e_title"].text = ("LOCO 2271   " if model.begins_with("classic") else "LOCO 8062   ") + str(s["model"])
+		ui["e_speed"].text = str(mph)
+		ui["e_lever"].text = s["lever_name"]
+		ui["e_te"].text = "%d kN" % int(s["te_kn"])
+		ui["e_te_bar"].size.x = 296.0 * clampf(s["te_kn"] / 430.0, 0.0, 1.0)
+		ui["e_db"].text = "%d kN" % int(s["db_kn"])
+		ui["e_db_bar"].size.x = 296.0 * clampf(s["db_kn"] / 300.0, 0.0, 1.0)
+		ui["e_air1"].text = "EQ RES %d   BRK PIPE %d   MAIN RES 140" % [int(s["er"]), int(s["bp"])]
+		ui["e_air2"].text = "BRK CYL %d   LOCO CYL %d   FLOW %d" % [int(s["bc"]), int(s["lbc"]), int(s["flow"])]
+		var flags := ""
+		if em:
+			flags += "EMERGENCY  "
+		if s["alert"]:
+			flags += "ALERTER  "
+		if s["sand"]:
+			flags += "SAND  "
+		if s["bell"]:
+			flags += "BELL"
+		ui["e_flags"].text = flags
+	if not ui.has("p_speed"):
+		return
 	ui["p_speed"].text = str(mph)
 	ui["p_limit"].text = str(s["limit"])
+	ui["p_mp"].text = "A-LINE SUB   MP %.1f" % float(s["mp"])
 	var nft: float = s["next_ft"]
 	if nft >= 0.0:
 		ui["p_target"].text = s["next_kind"]
 		ui["p_target2"].text = "%d FT" % int(nft)
-		ui["p_marker"].position.x = 16.0 + 474.0 * clampf(nft / 10560.0, 0.0, 1.0)
-		ui["p_marker"].visible = true
-		ui["p_next"].text = "%s  %d FT" % [s["next_kind"], int(nft)]
-		ui["p_next2"].text = s["next_txt"]
+		ui["p_bar"].size.x = 284.0 * clampf(1.0 - nft / 3300.0, 0.0, 1.0)
 	else:
-		ui["p_target"].text = "--"
+		ui["p_target"].text = "NONE"
 		ui["p_target2"].text = ""
-		ui["p_marker"].visible = false
-		ui["p_next"].text = "NO WORK AHEAD"
-		ui["p_next2"].text = ""
+		ui["p_bar"].size.x = 0.0
+	var ahead: Array = s["ahead"]
+	var marks: Array = ui["p_marks"]
+	var rows: Array = ui["p_rows"]
+	for k in marks.size():
+		if k < ahead.size():
+			var a: Array = ahead[k]
+			marks[k].visible = true
+			marks[k].position.x = 10.0 + 486.0 * clampf(a[0] / 3219.0, 0.0, 1.0)
+			var txt: String = a[1]
+			marks[k].color = Color(0.4, 0.7, 1.0) if txt.begins_with("XING") else (Color(0.7, 0.7, 0.7) if txt.begins_with("MP") else Color(1, 0.6, 0.1))
+		else:
+			marks[k].visible = false
+	for k in rows.size():
+		if k < ahead.size():
+			var a2: Array = ahead[k]
+			rows[k][0].text = str(a2[1]).left(30)
+			rows[k][1].text = "%s FT" % _commas(int(a2[0] * 3.281))
+		else:
+			rows[k][0].text = ""
+			rows[k][1].text = ""
 	ui["p_warn"].text = "OVERSPEED" if mph > int(s["limit"]) + 2 else ""

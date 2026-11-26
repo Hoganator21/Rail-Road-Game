@@ -25,9 +25,17 @@ const AHEAD_BUILD := 1600.0
 const AHEAD_EVENTS := 2600.0
 # train physics (from v11): ~1,250 t train, 430 kN tractive effort, 2.4 MW at the rail, 300 kN dynamic brake
 const MASS := 1.25e6
-const TE_MAX := 430e3
-const P_MAX := 2.4e6
-const DB_MAX := 300e3
+const LOCOS := {
+	"modern": {"te": 430e3, "p": 2.4e6, "db": 300e3, "split": false, "brake": "CCB", "name": "ES44AC"},
+	"classic": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2"},
+	"classic_lhf": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2 LHF"},
+}
+var TE_MAX := 430e3
+var P_MAX := 2.4e6
+var DB_MAX := 300e3
+var has_db: bool = true
+var split_db: bool = false
+var classic_db: bool = false
 const AUTO_STEPS := [0.0, 0.06, 0.2, 0.35, 0.5, 0.65, 0.86]
 const IND_STEPS := [0.0, 0.25, 0.5, 0.75, 1.0]
 const ALERT_WARN := 45.0
@@ -50,6 +58,7 @@ class Switch:
 class TrackEvent:
 	var kind: String = "siding"   # siding | spur_facing | spur_trailing
 	var industry: Array = []
+	var name: String = ""
 	var side: int = 1
 	var d_in: float = 0.0
 	var d_out: float = 0.0
@@ -87,6 +96,9 @@ var accel_now: float = 0.0
 var joints: Array = []
 var next_joint_d: float = 30.0
 var snd
+var xings
+const PLACE_NAMES := ["Bramwell", "Cedar Fork", "Dunmore", "Halsey", "Kittrell Mill", "Lowry", "Marsden", "Nolan", "Oakhurst", "Pruitt", "Quarry Jct", "Rendle", "Sutter", "Tillery", "Varner", "Whitlow", "Yates", "Ashby", "Corbin", "Fenwick", "Grover", "Iverson"]
+const ROAD_NAMES := ["Mill Rd", "Church St", "Old 301", "Depot St", "Farm Rd 1104", "Pine St", "Brook Rd", "Halifax Rd", "Cedar Ln", "Quarry Rd", "Main St", "Railroad Ave", "Courthouse Rd", "Hundred Rd"]
 var route = null
 var score: float = 0.0
 var best: int = 0
@@ -116,6 +128,8 @@ var shot_times: Array = []
 var shot_dir: String = ""
 var zoom_times: Array = []
 var jump_to: float = -1.0
+var jump_xing: float = -1.0
+var xing_cam: bool = false
 
 var cab: Node3D
 var pivot: Node3D
@@ -145,6 +159,10 @@ func _ready() -> void:
 			rng.seed = int(a.substr(7))
 		elif a.begins_with("--jump="):
 			jump_to = float(a.substr(7))
+		elif a == "--xing-cam":
+			xing_cam = true
+		elif a.begins_with("--jump-xing="):
+			jump_xing = float(a.substr(12))
 		elif a.begins_with("--loco="):
 			loco_override = a.substr(7)
 		elif a.begins_with("--shots="):
@@ -165,12 +183,24 @@ func _ready() -> void:
 	_make_cab()
 	snd = preload("res://scripts/sound.gd").new()
 	add_child(snd)
+	xings = preload("res://scripts/crossings.gd").new()
+	add_child(xings)
+	xings.setup(art, self)
 	hud = preload("res://scripts/hud.gd").new()
 	hud.game = self
 	add_child(hud)
 	reset_world()
-	if autopilot != "":
+	if autopilot != "" or shot_dir != "":
 		start_game()
+	if jump_xing >= 0.0:
+		var guard := 0
+		while xings.list.is_empty() and guard < 40:
+			front_d += 250.0
+			_stream()
+			guard += 1
+		if not xings.list.is_empty():
+			front_d = xings.list[0]["d"] - jump_xing
+			_stream()
 	if jump_to >= 0.0 and not events.is_empty():
 		front_d = events[0].start - jump_to
 		_stream()
@@ -281,10 +311,21 @@ func _make_cab() -> void:
 	cam.current = true
 	_build_cab_model()
 
+func _apply_loco_spec() -> void:
+	if not LOCOS.has(loco_model):
+		loco_model = "modern"
+	var sp: Dictionary = LOCOS[loco_model]
+	TE_MAX = sp["te"]
+	P_MAX = sp["p"]
+	DB_MAX = sp["db"]
+	split_db = sp["split"]
+	has_db = true if not split_db else classic_db
+
 func _build_cab_model() -> void:
+	_apply_loco_spec()
 	if cab_model:
 		cab_model.queue_free()
-	cab_model = cab_builder.build(loco_model)
+	cab_model = cab_builder.build(loco_model, has_db)
 	var e: Vector3 = cab_builder.eye
 	cab_model.position = Vector3(0.0, EYE_H, -e.z)
 	pivot.position = Vector3(e.x, EYE_H + e.y, 0.0)
@@ -296,6 +337,18 @@ func set_loco(kind: String) -> void:
 	loco_model = kind
 	_save_best()
 	_build_cab_model()
+	hud.configure_controls()
+
+func set_classic_db(on: bool) -> void:
+	classic_db = on
+	_save_best()
+	_build_cab_model()
+	hud.configure_controls()
+
+func alerter_reset() -> void:
+	if running and not game_over:
+		alert_t = 0.0
+		snd.play("click", 0.6)
 
 func _cab_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := _box(cab, size, pos, mat)
@@ -397,9 +450,31 @@ func _touch() -> void:
 	alert_t = 0.0
 
 func set_lever(v: int) -> void:
-	if _can_control():
-		lever = clampi(v, -9, 8)
-		_touch()
+	if not _can_control():
+		return
+	v = clampi(v, -9 if has_db else 0, 8)
+	lever = v
+	_touch()
+
+## classic units: separate throttle and dynamic brake handles with an interlock
+func set_throttle(n: int) -> void:
+	if not _can_control():
+		return
+	if lever < 0 and n > 0:
+		hud.toast("Put the dynamic brake handle in OFF first")
+		return
+	lever = clampi(n, 0, 8) if lever >= 0 else lever
+	_touch()
+
+func set_db(n: int) -> void:
+	# n = -1 OFF, 0 SETUP, 1..8 braking
+	if not _can_control() or not has_db:
+		return
+	if lever > 0 and n >= 0:
+		hud.toast("Throttle must be in IDLE to use dynamic brake")
+		return
+	lever = 0 if n < 0 else -1 - n
+	_touch()
 
 func lever_up() -> void:
 	set_lever(lever + 1)
@@ -411,7 +486,7 @@ func set_auto(h: float) -> void:
 	if not _can_control():
 		return
 	_touch()
-	h = clampf(h, 0.0, 0.86)
+	h = clampf(h, 0.0, 0.95)
 	if emergency:
 		if h < 0.03 and speed < 0.1:
 			emergency = false
@@ -488,6 +563,10 @@ func auto_name() -> String:
 		return "RELEASE"
 	if auto_h < 0.1:
 		return "MINIMUM"
+	if auto_h >= 0.93:
+		return "HANDLE OFF" if LOCOS[loco_model]["brake"] == "26L" else "CONT OFF"
+	if auto_h >= 0.88:
+		return "SUPPRESSION"
 	if auto_h >= 0.85:
 		return "FULL SERVICE"
 	return "SERVICE %d LB" % int(90.0 - _er_target(auto_h))
@@ -523,7 +602,29 @@ func _set_zoom_fov(f: float) -> void:
 	if not zoomed:
 		recentre = false
 
+var _tap_start := Vector2.ZERO
+
+func _try_pick(screen_pos: Vector2) -> void:
+	var from := cam.project_ray_origin(screen_pos)
+	var to := from + cam.project_ray_normal(screen_pos) * 4.0
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.has("collider") and hit["collider"].has_meta("action"):
+		if hit["collider"].get_meta("action") == "alerter":
+			alerter_reset()
+			hud.toast("Alerter reset")
+
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_tap_start = event.position
+		elif event.position.distance_to(_tap_start) < 12.0:
+			_try_pick(event.position)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.device != -1:
+		if event.pressed:
+			_tap_start = event.position
+		elif event.position.distance_to(_tap_start) < 6.0:
+			_try_pick(event.position)
 	if event is InputEventKey and event.keycode == KEY_H and not event.echo:
 		set_horn(event.pressed)
 		return
@@ -547,6 +648,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				emergency_brake()
 			KEY_X:
 				toggle_sand()
+			KEY_Q:
+				alerter_reset()
 			KEY_G:
 				toggle_bell()
 			KEY_E, KEY_ENTER, KEY_L:
@@ -605,8 +708,12 @@ func _process(delta: float) -> void:
 	if running and not game_over:
 		_update_train(delta)
 	_stream()
+	xings.update(delta, front_d, speed, horn and running, 320.0, time_s)
 	_place_cab(delta)
 	_update_camera(delta)
+	if xing_cam and not xings.list.is_empty():
+		var cz: float = -float(xings.list[0]["d"])
+		cam.global_transform = Transform3D(Basis(), Vector3(-16.0, 3.2, cz + 13.0)).looking_at(Vector3(0.0, 1.0, cz), Vector3.UP)
 	var nsw = next_switch()
 	var te_kn := minf(TE_MAX * power, P_MAX * power / maxf(speed, 1.5)) / 1000.0
 	var nft := -1.0
@@ -621,7 +728,8 @@ func _process(delta: float) -> void:
 		"mph": int(round(speed * MPH)), "limit": line_max(), "er": er_psi, "bp": bp_psi, "bc": bc_psi,
 		"lbc": lbc_psi, "te_kn": te_kn, "db_kn": DB_MAX * dyn / 1000.0, "flow": maxf(0.0, (90.0 - bp_psi) * (1.0 if auto_h < 0.03 else 0.2)),
 		"alert": running and alert_t > ALERT_WARN, "sand": sand, "bell": bell, "lever_name": lever_name(),
-		"next_ft": nft, "next_kind": nkind, "next_txt": ntext})
+		"next_ft": nft, "next_kind": nkind, "next_txt": ntext, "ahead": ptc_ahead(), "mp": front_d / 1609.34,
+		"model": LOCOS[loco_model]["name"]})
 	_update_sound(delta)
 	hud.refresh()
 	if shot_dir != "":
@@ -658,7 +766,7 @@ func _update_train(delta: float) -> void:
 	# --- main generator load and dynamic brake build up gradually
 	var can_power := not emergency and bp_psi > 45.0 and lining_sw == null
 	power = _approach(power, float(maxi(lever, 0)) / 8.0 if can_power else 0.0, 1.0 / 7.0, 1.0 / 3.0, delta)
-	var db_notch := (-lever - 1) if lever <= -2 else 0
+	var db_notch := (-lever - 1) if (lever <= -2 and has_db) else 0
 	dyn = _approach(dyn, float(db_notch) / 8.0, 1.0 / 5.0, 1.0 / 3.0, delta)
 	# --- forces
 	var v := speed
@@ -877,6 +985,55 @@ func _back_out() -> void:
 	lever = 0
 	auto_h = 0.2
 
+func ptc_ahead() -> Array:
+	var items: Array = []
+	var horizon := 3219.0   # 2 miles
+	for ev in events:
+		if route != null and ev != route:
+			continue
+		for sw in ev.switches:
+			var dd: float = sw.d - front_d
+			if dd > 0.0 and dd < horizon:
+				var t := ""
+				if ev.kind == "siding":
+					var sft := int((ev.d_out - ev.d_in) * 3.281)
+					t = ("%s SDG  %s FT" % [ev.name.to_upper(), _commas(sft)]) if sw.facing else ("%s SDG END" % ev.name.to_upper())
+				elif ev.kind == "spur_facing":
+					t = "SPUR %s" % (ev.industry[0].to_upper() if not ev.industry.is_empty() else "")
+				else:
+					t = "SPUR SW (TRAIL)"
+				items.append([dd, ("FACING " if sw.facing else "TRAIL ") + t])
+	for c in xings.list:
+		var dx: float = c["d"] - front_d
+		if dx > 0.0 and dx < horizon:
+			items.append([dx, "XING  " + str(c["name"]).to_upper()])
+	var mp := ceilf(front_d / 1609.34)
+	while mp * 1609.34 - front_d < horizon:
+		items.append([mp * 1609.34 - front_d, "MP %d" % int(mp)])
+		mp += 1.0
+	items.sort_custom(func(a, b): return a[0] < b[0])
+	return items
+
+func _commas(n: int) -> String:
+	var t := str(n)
+	return t if t.length() <= 3 else t.left(t.length() - 3) + "," + t.right(3)
+
+func crossing_result(road: String, grade: int, blasts: int) -> void:
+	if not running or game_over:
+		return
+	if autopilot != "":
+		print("AUTOTEST crossing %s grade %d blasts %d" % [road, grade, blasts])
+	if grade == 2:
+		var pts := 250.0 * (1.0 + speed * MPH / 40.0)
+		score += pts
+		hud.toast("Proper horn at %s!  +%d" % [road, int(pts)], Color(0.6, 1.0, 0.6))
+	elif grade == 1:
+		score += 40.0
+		hud.toast("Horn at %s - use long, long, short, long  +40" % road, Color(1.0, 0.9, 0.5))
+	else:
+		score = maxf(0.0, score - 150.0)
+		hud.toast("No horn at %s crossing!  -150" % road, Color(1.0, 0.5, 0.3))
+
 func _end_game(title: String, msg: String) -> void:
 	game_over = true
 	running = false
@@ -898,11 +1055,13 @@ func _load_best() -> void:
 	if cf.load("user://save.cfg") == OK:
 		best = int(cf.get_value("scores", "best", 0))
 		loco_model = str(cf.get_value("settings", "loco", "modern"))
+		classic_db = bool(cf.get_value("settings", "classic_db", false))
 
 func _save_best() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("scores", "best", best)
 	cf.set_value("settings", "loco", loco_model)
+	cf.set_value("settings", "classic_db", classic_db)
 	cf.save("user://save.cfg")
 
 func yardmaster_info() -> Array:
@@ -919,11 +1078,11 @@ func yardmaster_info() -> Array:
 	if sw.facing:
 		if ev.kind == "siding":
 			if ev.required_siding:
-				ym = "Take the SIDING on the %s. Diverging limit 25 MPH." % side_txt
+				ym = "Take the SIDING at %s (%s). Diverging limit 25 MPH." % [ev.name, side_txt]
 			else:
-				ym = "Hold the MAIN past the siding on the %s." % side_txt
+				ym = "Hold the MAIN at %s (siding on the %s)." % [ev.name, side_txt]
 		else:
-			ym = "Industry spur on the %s is OCCUPIED. Hold the MAIN." % side_txt
+			ym = "%s spur on the %s is OCCUPIED. Hold the MAIN." % [ev.industry[0] if not ev.industry.is_empty() else "Industry", side_txt]
 	else:
 		if ev.kind == "siding":
 			ym = "End of siding: switch must be lined for the %s." % ("SIDING" if route == ev else "MAIN")
@@ -1045,6 +1204,7 @@ func _gen_event() -> void:
 		ev.d_out = ev.start + TL + rng.randf_range(150.0, 230.0)
 		ev.end = ev.d_out
 		_add_switch(ev, ev.d_out, false, false, p_wrong * 0.9, p_lie)
+	ev.name = PLACE_NAMES[rng.randi() % PLACE_NAMES.size()]
 	events.append(ev)
 	_build_event_visuals(ev)
 	for sw in ev.switches:
@@ -1313,8 +1473,14 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 	var srng := RandomNumberGenerator.new()
 	srng.seed = hash(i * 7919 + 13)
 	var crossing_d := -1.0
-	if i >= 2 and overlapping.is_empty() and srng.randf() < 0.35:
-		crossing_d = c0 + CHUNK * 0.5
+	if i >= 2 and srng.randf() < 0.5:
+		var cd := c0 + CHUNK * 0.5
+		var clear_x := true
+		for ev in overlapping:
+			if cd > ev.start - 80.0 and cd < ev.end + 80.0:
+				clear_x = false
+		if clear_x:
+			crossing_d = cd
 	var blocked := func(x: float, d: float) -> bool:
 		if absf(x) < 9.5:
 			return true
@@ -1353,38 +1519,7 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 		_build_crossing(node, crossing_d, srng)
 
 func _build_crossing(node: Node3D, dc: float, srng: RandomNumberGenerator) -> void:
-	var road := art.road_strip(0.0, -220.0, 220.0, 8.0)
-	road.rotation.y = PI / 2.0
-	road.position = Vector3(0.0, -0.39, -dc)
-	node.add_child(road)
-	art.box(node, Vector3(5.0, 0.2, 8.0), Vector3(0.0, 0.2, -dc), art.mats["road"], false)
-	for k in 2:
-		var s := 1.0 if k == 0 else -1.0
-		var px := s * 4.6
-		var pz := -dc + s * 5.4
-		art.box(node, Vector3(0.12, 4.2, 0.12), Vector3(px, 1.65, pz), art.mats["white"])
-		var xb1 := art.box(node, Vector3(1.4, 0.22, 0.03), Vector3(px, 3.4, pz + s * 0.07), art.mats["white"])
-		xb1.rotation = Vector3(0.0, 0.0, PI / 4.0)
-		var xb2 := art.box(node, Vector3(1.4, 0.22, 0.03), Vector3(px, 3.4, pz + s * 0.07), art.mats["white"])
-		xb2.rotation = Vector3(0.0, 0.0, -PI / 4.0)
-		art.box(node, Vector3(1.0, 0.1, 0.1), Vector3(px, 2.6, pz), art.mats["black"])
-		for lx in [-0.4, 0.4]:
-			art.box(node, Vector3(0.3, 0.3, 0.12), Vector3(px + lx, 2.6, pz + s * 0.08), art.mats["black"])
-			art.box(node, Vector3(0.22, 0.22, 0.04), Vector3(px + lx, 2.6, pz + s * 0.15), art.mats["redlamp"], false)
-		# gate arm
-		var arm := art.box(node, Vector3(0.1, 0.1, 0.1), Vector3(px, 1.2, pz), art.mats["white"])
-		arm.scale = Vector3(1, 1, 1)
-		# a car waiting at the crossing
-		var car_mat := art.mat(Color(srng.randf(), srng.randf(), srng.randf()), 0.3, 0.4)
-		var cx := s * srng.randf_range(11.0, 16.0)
-		# car sitting on its wheels on the road surface (road top is at -0.39)
-		var cz := -dc - s * 2.0
-		art.box(node, Vector3(4.4, 0.75, 1.85), Vector3(cx, -0.39 + 0.3 + 0.375, cz), car_mat)
-		art.box(node, Vector3(2.3, 0.6, 1.7), Vector3(cx + s * 0.25, -0.39 + 0.3 + 0.75 + 0.3, cz), art.mats["black"])
-		for wx in [-1.4, 1.4]:
-			for wz in [-0.8, 0.8]:
-				var wh := art.cyl(node, 0.33, 0.33, 0.22, Vector3(cx + wx, -0.39 + 0.33, cz + wz), art.mats["black"], 12)
-				wh.rotation.x = PI / 2.0
+	xings.add(node, dc, ROAD_NAMES[srng.randi() % ROAD_NAMES.size()], srng)
 	# whistle post ahead of the crossing
 	art.box(node, Vector3(0.08, 2.2, 0.08), Vector3(3.2, 0.7, -(dc - 400.0)), art.mats["white"])
 	var w := Label3D.new()
@@ -1434,6 +1569,16 @@ func _autopilot(delta: float) -> void:
 			if dist < maxf(slow_d, 150.0):
 				desired = minf(desired, 20.0 / MPH)
 	_touch()
+	var xc: Dictionary = xings.whistle_post_ahead(front_d)
+	horn = false
+	if not xc.is_empty():
+		var ah: float = xc["d"] - front_d
+		if ah < 395.0:
+			if not xc.has("ap_t0"):
+				xc["ap_t0"] = time_s
+			var t: float = time_s - xc["ap_t0"]
+			# long 2s, gap 1s, long 2s, gap 1s, short 0.5s, gap 0.8s, long held into the crossing
+			horn = (t < 2.0) or (t > 3.0 and t < 5.0) or (t > 6.0 and t < 6.5) or (t > 7.3)
 	if desired <= 0.0:
 		lever = -9 if speed > 4.0 else 0
 		auto_h = 0.86
