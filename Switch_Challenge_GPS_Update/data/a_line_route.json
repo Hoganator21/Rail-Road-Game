@@ -1,0 +1,47 @@
+{
+  "origin": {
+    "name": "Acca Yard (Richmond, VA)",
+    "lat": 37.59,
+    "lon": -77.4758
+  },
+  "waypoints": [
+    {
+      "id": "acca_yard",
+      "name": "Acca Yard (Richmond, VA)",
+      "lat": 37.59,
+      "lon": -77.4758,
+      "role": "Starting / staging yard hub north of central Richmond"
+    },
+    {
+      "id": "james_river_bridge",
+      "name": "Bellwood Sub James River Bridge",
+      "lat": 37.5314,
+      "lon": -77.4317,
+      "role": "Plate-girder crossing over the James River & Norfolk Southern line"
+    },
+    {
+      "id": "fulton_yard",
+      "name": "Fulton Yard (Richmond, VA)",
+      "lat": 37.5107,
+      "lon": -77.4085,
+      "role": "East-side yard complex toward the James River / Peninsula approach"
+    },
+    {
+      "id": "bellwood_junction",
+      "name": "Bellwood Yard / Junction (VA)",
+      "lat": 37.428,
+      "lon": -77.448,
+      "role": "Southbound branch / Bellwood & Hopewell sub connection (MP S8.0)"
+    },
+    {
+      "id": "rocky_mount",
+      "name": "Rocky Mount Station / A-Line",
+      "lat": 35.938,
+      "lon": -77.7977,
+      "role": "Southern corridor anchor in Rocky Mount, NC (near Charlie Baker interlocking ~35.9314, -77.7997)"
+    }
+  ],
+  "clearance_meters": 7.8,
+  "track_gauge_meters": 1.435,
+  "signal_lateral_offset_meters": 4.45
+}

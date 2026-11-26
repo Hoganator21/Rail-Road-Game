@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Switch Challenge — Seaboard A-Line (Acca Yard → Rocky Mount)</title>
+  <style>
+    :root {
+      --bg-dark: #0b0e13;
+      --panel-bg: linear-gradient(180deg, #1b212c 0%, #12161e 100%);
+      --panel-border: #2d3748;
+      --accent: #f59e0b;
+      --accent-glow: rgba(245, 158, 11, 0.35);
+      --cyan: #38bdf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --text-main: #f1f5f9;
+      --text-dim: #94a3b8;
+    }
+
+    * { box-sizing: border-box; user-select: none; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    }
+
+    #viewport {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .tactile-panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-top-color: rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.65),
+        0 2px 6px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(8px);
+    }
+
+    .btn-3d {
+      appearance: none;
+      border: 1px solid #3a4659;
+      border-top-color: #52627a;
+      border-bottom-color: #090c10;
+      border-radius: 7px;
+      background: linear-gradient(180deg, #2b3444 0%, #1b212c 100%);
+      color: var(--text-main);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      padding: 8px 12px;
+      cursor: pointer;
+      box-shadow:
+        0 4px 0 #0a0d12,
+        0 7px 14px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      transition: transform 0.07s ease, box-shadow 0.07s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .btn-3d:hover {
+      border-color: #64748b;
+      background: linear-gradient(180deg, #343f52 0%, #202734 100%);
+    }
+
+    .btn-3d:active, .btn-3d.active {
+      transform: translateY(3px);
+      box-shadow:
+        0 1px 0 #0a0d12,
+        0 2px 6px rgba(0, 0, 0, 0.6),
+        inset 0 2px 5px rgba(0, 0, 0, 0.5);
+    }
+
+    .btn-3d.active {
+      border-color: var(--accent);
+      box-shadow:
+        0 1px 0 #0a0d12,
+        0 0 14px var(--accent-glow),
+        inset 0 1px 4px rgba(0, 0, 0, 0.45);
+      color: #fde68a;
+    }
+
+    .btn-3d.danger.active, .btn-3d.danger:hover {
+      border-color: var(--red);
+    }
+
+    #top-hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+      gap: 12px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #top-hud > * { pointer-events: auto; }
+
+    .brand-box {
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #f8fafc;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--cyan);
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    .telemetry-strip {
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .gauge-cell {
+      background: #090c11;
+      border: 1px solid #1e293b;
+      border-bottom-color: rgba(255,255,255,0.08);
+      border-radius: 6px;
+      padding: 5px 10px;
+      min-width: 88px;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.85);
+    }
+
+    .gauge-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+    }
+
+    .gauge-val {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-top: 1px;
+    }
+
+    .signal-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #090c11;
+      border: 1px solid #263244;
+      font-size: 11px;
+      font-weight: 700;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.75);
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    #cam-panel {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      width: 278px;
+      padding: 12px;
+      z-index: 10;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .btn-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-bottom: 8px;
+    }
+
+    .btn-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .hint-text {
+      font-size: 10.5px;
+      line-height: 1.38;
+      color: var(--text-dim);
+      background: rgba(9, 12, 17, 0.65);
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 7px 8px;
+    }
+
+    #op-panel {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      width: 320px;
+      padding: 12px;
+      z-index: 10;
+    }
+
+    .slider-row {
+      margin-bottom: 9px;
+    }
+
+    .slider-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    select.tactile-select {
+      width: 100%;
+      padding: 7px 9px;
+      border-radius: 7px;
+      background: #0d1118;
+      color: var(--text-main);
+      border: 1px solid #334155;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
+    }
+
+    #status-toast {
+      position: fixed;
+      top: 78px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 7px 14px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid #475569;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.65);
+      font-size: 12px;
+      font-weight: 600;
+      color: #f8fafc;
+      z-index: 15;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+    }
+
+    #status-toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <canvas id="viewport"></canvas>
+
+  <div id="status-toast"></div>
+
+  <div id="top-hud">
+    <div class="tactile-panel brand-box">
+      <div class="brand-title">Switch Challenge • Seaboard A-Line</div>
+      <div class="brand-sub" id="route-readout">Acca Yard (37.5900°N, 77.4758°W) → James River Bridge → Bellwood → Rocky Mount</div>
+    </div>
+
+    <div class="tactile-panel telemetry-strip">
+      <div class="gauge-cell">
+        <div class="gauge-label">Speed</div>
+        <div class="gauge-val" id="g-speed">0.0 MPH</div>
+      </div>
+      <div class="gauge-cell">
+        <div class="gauge-label">Brake Pipe</div>
+        <div class="gauge-val" id="g-bp">90 PSI</div>
+      </div>
+      <div class="gauge-cell">
+        <div class="gauge-label">Brake Cyl</div>
+        <div class="gauge-val" id="g-bc">0 PSI</div>
+      </div>
+      <div class="gauge-cell">
+        <div class="gauge-label">Corridor GPS</div>
+        <div class="gauge-val" id="g-gps">37.5900, -77.4758</div>
+      </div>
+      <div class="signal-pill" id="signal-status">
+        <span class="dot" id="signal-dot" style="color:#22c55e;background:#22c55e;"></span>
+        <span id="signal-text">CLEAR • 7.8m CLR</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="cam-panel" class="tactile-panel">
+    <div class="panel-title">
+      <span>Camera & Signal Look</span>
+      <span id="fov-readout" style="color:var(--cyan);">FOV 52°</span>
+    </div>
+    <div class="btn-grid-2">
+      <button class="btn-3d active" id="cam-cab" onclick="setCameraMode('cab')">Cab View</button>
+      <button class="btn-3d" id="cam-signal" onclick="setCameraMode('signal')">Signal Zoom</button>
+      <button class="btn-3d" id="cam-bogie" onclick="setCameraMode('bogie')">Bogie & Air</button>
+      <button class="btn-3d" id="cam-yard" onclick="setCameraMode('yard')">Corridor Map</button>
+    </div>
+    <div class="btn-grid-3">
+      <button class="btn-3d" onclick="adjustZoom(-6)">Zoom +</button>
+      <button class="btn-3d" onclick="adjustZoom(6)">Zoom -</button>
+      <button class="btn-3d" onclick="resetLookAngle()">Center Look</button>
+    </div>
+    <div class="hint-text">
+      <strong>Look Around:</strong> Left-drag anywhere (even when zoomed on signals) to look/orbit. Right-drag or <strong>WASD</strong> to pan. Wheel to zoom.
+    </div>
+  </div>
+
+  <div id="op-panel" class="tactile-panel">
+    <div class="panel-title">
+      <span>Locomotive & Corridor</span>
+      <span id="role-badge" style="color:var(--accent);">ENGINEER</span>
+    </div>
+
+    <select class="tactile-select" id="route-select" onchange="changeBranch(this.value)">
+      <option value="aline_rocky_mount">A-Line South: Acca Yard → James River → Bellwood → Rocky Mount</option>
+      <option value="fulton_peninsula">East Lead: Acca Yard → Fulton Yard (37.5107°N, 77.4085°W)</option>
+      <option value="bellwood_hopewell">Branch: Bellwood Junction (MP S8.0) → Hopewell Sub</option>
+    </select>
+
+    <select class="tactile-select" id="warp-select" onchange="jumpToLandmark(this.value)">
+      <option value="0.06">Jump To: Acca Yard Staging (37.5900, -77.4758)</option>
+      <option value="0.28">Jump To: Bellwood Sub James River Bridge (37.5314, -77.4317)</option>
+      <option value="0.52">Jump To: Bellwood Yard / Junction MP S8.0 (37.4280, -77.4480)</option>
+      <option value="0.86">Jump To: Rocky Mount / Charlie Baker (35.9380, -77.7977)</option>
+    </select>
+
+    <div class="slider-row">
+      <div class="slider-head">
+        <span>Throttle Notch</span>
+        <span id="throttle-val">0 (Idle)</span>
+      </div>
+      <input type="range" id="throttle-slider" min="-4" max="8" step="1" value="0" oninput="setThrottle(this.value)" />
+    </div>
+
+    <div class="slider-row">
+      <div class="slider-head">
+        <span>Automatic Brake</span>
+        <span id="brake-val">Release (90 PSI)</span>
+      </div>
+      <input type="range" id="brake-slider" min="0" max="5" step="1" value="1" oninput="setBrake(this.value)" />
+    </div>
+
+    <div class="btn-grid-2">
+      <button class="btn-3d" id="btn-anglecock" onclick="toggleAngleCock()">Angle Cock: OPEN</button>
+      <button class="btn-3d" id="btn-doors" onclick="toggleCarDoors()">Box Doors: CLOSED</button>
+      <button class="btn-3d" id="btn-role" onclick="toggleRole()">Role: Engineer</button>
+      <button class="btn-3d danger" id="btn-emergency" onclick="emergencyBrake()">EMERGENCY</button>
+    </div>
+
+    <div class="hint-text" id="consist-summary">
+      8-Car Mixed Consist: Tank, Box, Flat, Intermodal, Bulkhead, Hopper, Auto Rack, Gondola (knuckles & gladhands coupled).
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    // Real GPS Corridor Anchors (Acca Yard -> James River Bridge -> Fulton/Bellwood -> Rocky Mount)
+    const GPS_LANDMARKS = {
+      acca:       { name: 'Acca Yard (Richmond, VA)',          lat: 37.5900, lon: -77.4758 },
+      jamesRiver: { name: 'Bellwood Sub James River Bridge',   lat: 37.5314, lon: -77.4317 },
+      fulton:     { name: 'Fulton Yard (Richmond, VA)',        lat: 37.5107, lon: -77.4085 },
+      bellwood:   { name: 'Bellwood Yard / Junction (MP S8.0)',lat: 37.4280, lon: -77.4480 },
+      rockyMount: { name: 'Rocky Mount / Charlie Baker',       lat: 35.9380, lon: -77.7977 }
+    };
+
+    // Convert Lat/Lon relative to Acca Yard into playable 3D scene coordinates
+    // Uses true compass bearings (East = +X, South = +Z) with compressed regional scale so the entire corridor is drivable
+    function projectGpsToWorld(lat, lon) {
+      const origin = GPS_LANDMARKS.acca;
+      const dLat = lat - origin.lat; // negative going south
+      const dLon = lon - origin.lon; // positive going east, negative going west
+      const cosLat = Math.cos(THREE.MathUtils.degToRad(origin.lat));
+
+      // Compress Richmond->Rocky Mount (~1.65 deg lat) into ~520m of detailed 3D corridor while preserving exact bearings & bends
+      const northMeters = dLat * 111320;
+      const eastMeters = dLon * 111320 * cosLat;
+
+      // Non-linear distance compression keeps Richmond yards/bridges spacious while pulling Rocky Mount within playable range
+      const dist = Math.hypot(northMeters, eastMeters);
+      if (dist < 1) return new THREE.Vector3(0, 0, 0);
+
+      const compressedDist = Math.pow(dist, 0.62) * 1.45;
+      const scale = compressedDist / dist;
+
+      return new THREE.Vector3(
+        eastMeters * scale,
+        0,
+        -northMeters * scale // South (+Z) is forward down the A-Line
+      );
+    }
+
+    function worldToApproxGps(vec3, routeCurve, t) {
+      // Interpolate real lat/lon between corridor anchors along t
+      const stops = currentBranch === 'fulton_peninsula'
+        ? [GPS_LANDMARKS.acca, GPS_LANDMARKS.jamesRiver, GPS_LANDMARKS.fulton]
+        : [GPS_LANDMARKS.acca, GPS_LANDMARKS.jamesRiver, GPS_LANDMARKS.bellwood, GPS_LANDMARKS.rockyMount];
+      const scaled = t * (stops.length - 1);
+      const idx = Math.min(stops.length - 2, Math.floor(scaled));
+      const frac = scaled - idx;
+      const lat = THREE.MathUtils.lerp(stops[idx].lat, stops[idx + 1].lat, frac);
+      const lon = THREE.MathUtils.lerp(stops[idx].lon, stops[idx + 1].lon, frac);
+      return { lat, lon };
+    }
+
+    // Core physical & clearance constants (meters)
+    const RAIL_GAUGE = 1.435;
+    const RAIL_HALF_GAUGE = RAIL_GAUGE * 0.5;
+    const RAIL_TOP_Y = 0.18;
+    const OVERHEAD_CLEARANCE = 7.8; // High overhead clearance above railhead
+    const SIGNAL_LATERAL_OFFSET = 4.45; // Outside clearance envelope; never on track centerline
+
+    const canvas = document.getElementById('viewport');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x182232);
+    scene.fog = new THREE.FogExp2(0x1c2838, 0.0016);
+
+    const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.15, 1400);
+
+    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x3f2e21, 0.85);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff4d6, 2.2);
+    sunLight.position.set(85, 130, 65);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.camera.near = 10;
+    sunLight.shadow.camera.far = 450;
+    const d = 140;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    scene.add(sunLight);
+
+    let currentBranch = 'aline_rocky_mount';
+    function buildRouteCurve(branch) {
+      const pAccaStart = new THREE.Vector3(0, 0, -55);
+      const pAccaThroat = projectGpsToWorld(GPS_LANDMARKS.acca.lat, GPS_LANDMARKS.acca.lon);
+      const pJamesRiver = projectGpsToWorld(GPS_LANDMARKS.jamesRiver.lat, GPS_LANDMARKS.jamesRiver.lon);
+      const pFulton = projectGpsToWorld(GPS_LANDMARKS.fulton.lat, GPS_LANDMARKS.fulton.lon);
+      const pBellwood = projectGpsToWorld(GPS_LANDMARKS.bellwood.lat, GPS_LANDMARKS.bellwood.lon);
+      const pRockyMount = projectGpsToWorld(GPS_LANDMARKS.rockyMount.lat, GPS_LANDMARKS.rockyMount.lon);
+
+      if (branch === 'fulton_peninsula') {
+        return new THREE.CatmullRomCurve3([
+          pAccaStart,
+          pAccaThroat,
+          pJamesRiver,
+          pFulton
+        ]);
+      }
+      if (branch === 'bellwood_hopewell') {
+        const pHopewellLead = pBellwood.clone().add(new THREE.Vector3(95, 0, 85));
+        return new THREE.CatmullRomCurve3([
+          pAccaStart,
+          pAccaThroat,
+          pJamesRiver,
+          pBellwood,
+          pHopewellLead
+        ]);
+      }
+      // Default: Acca Yard -> James River Bridge -> Bellwood Junction -> Rocky Mount / Charlie Baker Interlocking
+      return new THREE.CatmullRomCurve3([
+        pAccaStart,
+        pAccaThroat,
+        pJamesRiver,
+        pBellwood,
+        pRockyMount
+      ]);
+    }
+
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
+
+    const matGround = new THREE.MeshStandardMaterial({ color: 0x3b352c, roughness: 0.95 });
+    const matBallast = new THREE.MeshStandardMaterial({ color: 0x57534e, roughness: 0.92 });
+    const matTie = new THREE.MeshStandardMaterial({ color: 0x2c1e14, roughness: 0.9 });
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.25 });
+    const matDarkIron = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.45 });
+    const matGirder = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.7, roughness: 0.4 });
+    const matBrick = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.85 });
+    const matConcrete = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.85 });
+    const matAsphalt = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.85 });
+    const matRiver = new THREE.MeshStandardMaterial({ color: 0x0f3b57, roughness: 0.2, metalness: 0.65 });
+
+    function getTrackFrame(curve, t) {
+      const pt = curve.getPointAt(THREE.MathUtils.clamp(t, 0, 1));
+      const tan = curve.getTangentAt(THREE.MathUtils.clamp(t, 0, 1)).normalize();
+      const right = new THREE.Vector3().crossVectors(tan, new THREE.Vector3(0, 1, 0)).normalize();
+      return { pt, tan, right };
+    }
+
+    function clearGroup(grp) {
+      while (grp.children.length > 0) {
+        grp.remove(grp.children[0]);
+      }
+    }
+
+    const signals = [];
+    const roadVehicles = [];
+    const animatedDoors = [];
+
+    function buildEnvironment(curve) {
+      clearGroup(worldGroup);
+      signals.length = 0;
+      roadVehicles.length = 0;
+      animatedDoors.length = 0;
+
+      const pJamesRiver = projectGpsToWorld(GPS_LANDMARKS.jamesRiver.lat, GPS_LANDMARKS.jamesRiver.lon);
+      const pFulton = projectGpsToWorld(GPS_LANDMARKS.fulton.lat, GPS_LANDMARKS.fulton.lon);
+      const pBellwood = projectGpsToWorld(GPS_LANDMARKS.bellwood.lat, GPS_LANDMARKS.bellwood.lon);
+      const pRockyMount = projectGpsToWorld(GPS_LANDMARKS.rockyMount.lat, GPS_LANDMARKS.rockyMount.lon);
+
+      // Graded terrain spanning Richmond -> Rocky Mount corridor
+      const terrain = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1600), matGround);
+      terrain.rotation.x = -Math.PI / 2;
+      terrain.position.set(40, -0.05, 320);
+      terrain.receiveShadow = true;
+      worldGroup.add(terrain);
+
+      // James River channel crossing beneath Bellwood Sub James River Bridge (37.5314, -77.4317)
+      const jamesRiverWater = new THREE.Mesh(new THREE.PlaneGeometry(950, 56), matRiver);
+      jamesRiverWater.rotation.x = -Math.PI / 2;
+      jamesRiverWater.rotation.z = -0.32;
+      jamesRiverWater.position.set(pJamesRiver.x, -0.01, pJamesRiver.z);
+      worldGroup.add(jamesRiverWater);
+
+      // Plate-girder bridge deck & piers at Bellwood Sub James River Bridge
+      const bridgeYaw = Math.atan2(pJamesRiver.x, pJamesRiver.z);
+      const bridgeGroup = new THREE.Group();
+      bridgeGroup.position.set(pJamesRiver.x, 0, pJamesRiver.z);
+      bridgeGroup.rotation.y = bridgeYaw;
+
+      [-2.1, 2.1].forEach((gx) => {
+        const girder = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.35, 62), matGirder);
+        girder.position.set(gx, 0.72, 0);
+        girder.castShadow = true;
+        bridgeGroup.add(girder);
+      });
+      [-22, 0, 22].forEach((pz) => {
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.4, 2.2), matConcrete);
+        pier.position.set(0, -1.1, pz);
+        bridgeGroup.add(pier);
+      });
+      worldGroup.add(bridgeGroup);
+
+      // Acca Yard (37.5900, -77.4758) parallel classification tracks
+      [-11, -5.5, 5.5, 11].forEach((offsetX) => {
+        const yBallast = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 95), matBallast);
+        yBallast.position.set(offsetX, 0.06, -15);
+        yBallast.receiveShadow = true;
+        worldGroup.add(yBallast);
+
+        [-RAIL_HALF_GAUGE, RAIL_HALF_GAUGE].forEach((rx) => {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 95), matSteel);
+          rail.position.set(offsetX + rx, RAIL_TOP_Y - 0.07, -15);
+          worldGroup.add(rail);
+        });
+      });
+
+      // Fulton Yard east-side yard complex (37.5107, -77.4085)
+      [-6, 0, 6].forEach((ox) => {
+        const fBallast = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 65), matBallast);
+        fBallast.position.set(pFulton.x + ox, 0.06, pFulton.z);
+        fBallast.rotation.y = 0.55;
+        worldGroup.add(fBallast);
+      });
+
+      // Cross-roads & realistic multi-part road vehicles near Richmond & Bellwood
+      [28, pBellwood.z + 18].forEach((roadZ, rIdx) => {
+        const road = new THREE.Mesh(new THREE.BoxGeometry(420, 0.04, 14), matAsphalt);
+        road.position.set(pBellwood.x * 0.5, 0.0, roadZ);
+        road.receiveShadow = true;
+        worldGroup.add(road);
+
+        const carColors = [0xdc2626, 0x2563eb, 0xf8fafc, 0x475569, 0xd97706];
+        for (let i = 0; i < 4; i++) {
+          const vGroup = new THREE.Group();
+          const isEastbound = i % 2 === 0;
+          const bodyMat = new THREE.MeshStandardMaterial({
+            color: carColors[(i + rIdx) % carColors.length],
+            metalness: 0.45,
+            roughness: 0.35
+          });
+          const glassMat = new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            metalness: 0.9,
+            roughness: 0.1
+          });
+
+          const lower = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.72, 1.95), bodyMat);
+          lower.position.y = 0.62;
+          lower.castShadow = true;
+          vGroup.add(lower);
+
+          const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.58, 1.72), glassMat);
+          cabin.position.set(-0.25, 1.24, 0);
+          vGroup.add(cabin);
+
+          const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.24, 14);
+          wheelGeo.rotateX(Math.PI / 2);
+          [[-1.35, 0.36, 0.98], [1.35, 0.36, 0.98], [-1.35, 0.36, -0.98], [1.35, 0.36, -0.98]].forEach(([wx, wy, wz]) => {
+            const w = new THREE.Mesh(wheelGeo, matDarkIron);
+            w.position.set(wx, wy, wz);
+            vGroup.add(w);
+          });
+
+          const laneZ = roadZ + (isEastbound ? 2.8 : -2.8);
+          vGroup.position.set(-90 + i * 55, 0.02, laneZ);
+          if (!isEastbound) vGroup.rotation.y = Math.PI;
+          worldGroup.add(vGroup);
+
+          roadVehicles.push({
+            mesh: vGroup,
+            dir: isEastbound ? 1 : -1,
+            speed: 8.5 + i * 1.4
+          });
+        }
+      });
+
+      // Industrial / town brick structures at Acca Yard, Fulton Yard, Bellwood & Rocky Mount
+      const buildingSpecs = [
+        { x: -26, z: -20, w: 22, h: 11, d: 34 },
+        { x: 27, z: -15, w: 24, h: 12, d: 30 },
+        { x: pFulton.x + 24, z: pFulton.z - 8, w: 24, h: 10, d: 32 },
+        { x: pBellwood.x - 28, z: pBellwood.z, w: 22, h: 9.5, d: 28 },
+        { x: pRockyMount.x - 26, z: pRockyMount.z - 12, w: 28, h: 12, d: 36 },
+        { x: pRockyMount.x + 28, z: pRockyMount.z - 5, w: 22, h: 10, d: 30 }
+      ];
+      buildingSpecs.forEach((b) => {
+        const bldg = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), matBrick);
+        bldg.position.set(b.x, b.h * 0.5, b.z);
+        bldg.castShadow = true;
+        bldg.receiveShadow = true;
+        worldGroup.add(bldg);
+
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.6, 0.45, b.d + 0.6), matConcrete);
+        roof.position.set(b.x, b.h + 0.2, b.z);
+        worldGroup.add(roof);
+      });
+
+      // Continuous ballast bed, crossties & steel rails along the projected GPS corridor
+      const samples = 260;
+      for (let i = 0; i < samples; i++) {
+        const t0 = i / samples;
+        const t1 = (i + 1) / samples;
+        const f0 = getTrackFrame(curve, t0);
+        const f1 = getTrackFrame(curve, t1);
+        const mid = f0.pt.clone().add(f1.pt).multiplyScalar(0.5);
+        const segLen = f0.pt.distanceTo(f1.pt) * 1.04;
+        const yaw = Math.atan2(f1.pt.x - f0.pt.x, f1.pt.z - f0.pt.z);
+
+        const ballast = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.14, segLen), matBallast);
+        ballast.position.set(mid.x, 0.07, mid.z);
+        ballast.rotation.y = yaw;
+        ballast.receiveShadow = true;
+        worldGroup.add(ballast);
+
+        if (i % 2 === 0) {
+          const tie = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.08, 0.24), matTie);
+          tie.position.set(mid.x, 0.12, mid.z);
+          tie.rotation.y = yaw;
+          worldGroup.add(tie);
+        }
+
+        [-RAIL_HALF_GAUGE, RAIL_HALF_GAUGE].forEach((lat) => {
+          const rPos = mid.clone().addScaledVector(f0.right, lat);
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, segLen), matSteel);
+          rail.position.set(rPos.x, RAIL_TOP_Y - 0.06, rPos.z);
+          rail.rotation.y = yaw;
+          rail.castShadow = true;
+          worldGroup.add(rail);
+        });
+      }
+
+      // High-clearance overhead signal bridges (7.8m above railhead)
+      [0.20, 0.62].forEach((gT) => {
+        const gf = getTrackFrame(curve, gT);
+        const gYaw = Math.atan2(gf.tan.x, gf.tan.z);
+        const bridgeBottomY = RAIL_TOP_Y + OVERHEAD_CLEARANCE;
+
+        const gantryGroup = new THREE.Group();
+        gantryGroup.position.copy(gf.pt);
+        gantryGroup.rotation.y = gYaw;
+
+        const postGeo = new THREE.CylinderGeometry(0.22, 0.26, bridgeBottomY + 0.8, 12);
+        const leftPost = new THREE.Mesh(postGeo, matDarkIron);
+        leftPost.position.set(-5.6, (bridgeBottomY + 0.8) * 0.5, 0);
+        gantryGroup.add(leftPost);
+
+        const rightPost = new THREE.Mesh(postGeo, matDarkIron);
+        rightPost.position.set(5.6, (bridgeBottomY + 0.8) * 0.5, 0);
+        gantryGroup.add(rightPost);
+
+        const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.55, 0.65), matDarkIron);
+        crossBeam.position.set(0, bridgeBottomY + 0.28, 0);
+        gantryGroup.add(crossBeam);
+
+        worldGroup.add(gantryGroup);
+      });
+
+      // Trackside Interlocking Huts & Wayside Signals (strictly outside track clearance at ±4.45m)
+      [0.14, 0.34, 0.54, 0.84].forEach((tPos, idx) => {
+        const sf = getTrackFrame(curve, tPos);
+        const sYaw = Math.atan2(sf.tan.x, sf.tan.z);
+
+        const hutPos = sf.pt.clone().addScaledVector(sf.right, SIGNAL_LATERAL_OFFSET);
+        const hut = new THREE.Mesh(new THREE.BoxGeometry(2.1, 2.5, 3.2), matConcrete);
+        hut.position.set(hutPos.x, 1.25, hutPos.z);
+        hut.rotation.y = sYaw;
+        hut.castShadow = true;
+        worldGroup.add(hut);
+
+        const mastPos = sf.pt.clone().addScaledVector(sf.right, SIGNAL_LATERAL_OFFSET - 0.85);
+        const mastGroup = new THREE.Group();
+        mastGroup.position.set(mastPos.x, 0, mastPos.z);
+        mastGroup.rotation.y = sYaw;
+
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 5.4, 10), matSteel);
+        mast.position.y = 2.7;
+        mastGroup.add(mast);
+
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.25, 0.35), matDarkIron);
+        head.position.set(0, 5.1, 0);
+        mastGroup.add(head);
+
+        const lampMat = new THREE.MeshStandardMaterial({
+          color: idx === 2 ? 0xf59e0b : 0x22c55e,
+          emissive: idx === 2 ? 0xd97706 : 0x16a34a,
+          emissiveIntensity: 1.5
+        });
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), lampMat);
+        lamp.position.set(0, 5.35, 0.19);
+        mastGroup.add(lamp);
+
+        worldGroup.add(mastGroup);
+        signals.push({ t: tPos, aspect: idx === 2 ? 'APPROACH' : 'CLEAR' });
+      });
+    }
+
+    // Build rolling stock with grounded flanged wheelsets, pivoting bogies, knuckle couplers & air hoses
+    function createRollingCar(type, index) {
+      const carGroup = new THREE.Group();
+
+      const bodyPalette = {
+        tank: 0x334155,
+        box: 0x7c2d12,
+        flat: 0x475569,
+        intermodal: 0x1e3a8a,
+        bulkhead: 0x92400e,
+        hopper: 0x3f3f46,
+        autorack: 0xeab308,
+        gondola: 0x27272a
+      };
+      const carMat = new THREE.MeshStandardMaterial({
+        color: bodyPalette[type] || 0x475569,
+        roughness: 0.55,
+        metalness: 0.35
+      });
+
+      const carLength = type === 'intermodal' || type === 'autorack' ? 13.6 : 10.6;
+      const carWidth = 2.55;
+      const deckY = RAIL_TOP_Y + 0.92;
+
+      const sill = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.92, 0.24, carLength), matDarkIron);
+      sill.position.y = deckY;
+      sill.castShadow = true;
+      carGroup.add(sill);
+
+      const wheelRadius = RAIL_TOP_Y;
+      const bogieZOffsets = [-carLength * 0.32, carLength * 0.32];
+      const bogieGroups = [];
+
+      bogieZOffsets.forEach((bz) => {
+        const bogie = new THREE.Group();
+        bogie.position.set(0, 0, bz);
+
+        const bolster = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.22, 0.45), matDarkIron);
+        bolster.position.y = wheelRadius + 0.32;
+        bogie.add(bolster);
+
+        [-0.95, 0.95].forEach((sx) => {
+          const sideframe = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 1.85), matDarkIron);
+          sideframe.position.set(sx, wheelRadius + 0.16, 0);
+          bogie.add(sideframe);
+        });
+
+        [-0.82, 0.82].forEach((az) => {
+          const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, RAIL_GAUGE + 0.1, 10), matSteel);
+          axle.rotation.z = Math.PI / 2;
+          axle.position.set(0, wheelRadius, az);
+          bogie.add(axle);
+
+          [-RAIL_HALF_GAUGE, RAIL_HALF_GAUGE].forEach((wx) => {
+            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.13, 18), matSteel);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(wx, wheelRadius, az);
+            wheel.castShadow = true;
+            bogie.add(wheel);
+
+            const flange = new THREE.Mesh(new THREE.CylinderGeometry(wheelRadius + 0.035, wheelRadius + 0.035, 0.03, 18), matSteel);
+            flange.rotation.z = Math.PI / 2;
+            const flangeSign = wx < 0 ? 1 : -1;
+            flange.position.set(wx + flangeSign * 0.055, wheelRadius, az);
+            bogie.add(flange);
+          });
+        });
+
+        carGroup.add(bogie);
+        bogieGroups.push(bogie);
+      });
+
+      [-1, 1].forEach((endSign) => {
+        const zEnd = endSign * (carLength * 0.5 + 0.35);
+        const shank = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.55), matDarkIron);
+        shank.position.set(0, deckY + 0.05, zEnd - endSign * 0.15);
+        carGroup.add(shank);
+
+        const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.26, 0.26), matSteel);
+        knuckle.position.set(0.05 * endSign, deckY + 0.05, zEnd + endSign * 0.12);
+        carGroup.add(knuckle);
+
+        const angleCock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.14), new THREE.MeshStandardMaterial({ color: 0xef4444 }));
+        angleCock.position.set(0.32, deckY - 0.06, zEnd - endSign * 0.05);
+        carGroup.add(angleCock);
+
+        const hose = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.035, 0.035, 0.55, 8),
+          new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 })
+        );
+        hose.position.set(0.32, deckY - 0.32, zEnd + endSign * 0.08);
+        hose.rotation.x = endSign * 0.35;
+        carGroup.add(hose);
+      });
+
+      if (type === 'tank') {
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, carLength * 0.88, 20), carMat);
+        barrel.rotation.x = Math.PI / 2;
+        barrel.position.y = deckY + 1.32;
+        barrel.castShadow = true;
+        carGroup.add(barrel);
+
+        const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.45, 14), matSteel);
+        dome.position.y = deckY + 2.55;
+        carGroup.add(dome);
+      } else if (type === 'box') {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 2.65, carLength * 0.92), carMat);
+        box.position.y = deckY + 1.44;
+        box.castShadow = true;
+        carGroup.add(box);
+
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.6 });
+        const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.25, 1.15), doorMat);
+        leftDoor.position.set(carWidth * 0.5 + 0.04, deckY + 1.3, -0.58);
+        const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.25, 1.15), doorMat);
+        rightDoor.position.set(carWidth * 0.5 + 0.04, deckY + 1.3, 0.58);
+        carGroup.add(leftDoor, rightDoor);
+        animatedDoors.push({ leftDoor, rightDoor });
+      } else if (type === 'flat') {
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 0.18, carLength * 0.94), carMat);
+        deck.position.y = deckY + 0.2;
+        carGroup.add(deck);
+
+        const load = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.75, carLength * 0.75), matBrick);
+        load.position.y = deckY + 0.65;
+        carGroup.add(load);
+      } else if (type === 'intermodal') {
+        const well = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.88, 0.55, carLength * 0.92), matDarkIron);
+        well.position.y = deckY + 0.25;
+        carGroup.add(well);
+
+        const container = new THREE.Mesh(new THREE.BoxGeometry(2.44, 2.55, carLength * 0.86), carMat);
+        container.position.y = deckY + 1.72;
+        container.castShadow = true;
+        carGroup.add(container);
+      } else if (type === 'bulkhead') {
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 0.18, carLength * 0.94), carMat);
+        deck.position.y = deckY + 0.2;
+        carGroup.add(deck);
+
+        [-carLength * 0.44, carLength * 0.44].forEach((bz) => {
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 2.5, 0.22), matDarkIron);
+          wall.position.set(0, deckY + 1.45, bz);
+          carGroup.add(wall);
+        });
+
+        const timber = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.6, carLength * 0.78), new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.85 }));
+        timber.position.y = deckY + 1.05;
+        carGroup.add(timber);
+      } else if (type === 'hopper') {
+        const hopperBody = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 2.2, carLength * 0.88), carMat);
+        hopperBody.position.y = deckY + 1.3;
+        carGroup.add(hopperBody);
+
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.72, 0.25, carLength * 0.82), matSteel);
+        lid.position.y = deckY + 2.5;
+        carGroup.add(lid);
+      } else if (type === 'autorack') {
+        const cage = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 1.02, 3.65, carLength * 0.94), carMat);
+        cage.position.y = deckY + 1.95;
+        cage.castShadow = true;
+        carGroup.add(cage);
+      } else if (type === 'gondola') {
+        const tub = new THREE.Mesh(new THREE.BoxGeometry(carWidth, 1.35, carLength * 0.92), carMat);
+        tub.position.y = deckY + 0.8;
+        carGroup.add(tub);
+      }
+
+      if (index === 0) {
+        const locoMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.6, roughness: 0.3 });
+        const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.4 });
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(carWidth + 0.05, 2.8, 3.2), locoMat);
+        cab.position.set(0, deckY + 1.5, -carLength * 0.24);
+        cab.castShadow = true;
+        carGroup.add(cab);
+
+        const nose = new THREE.Mesh(new THREE.BoxGeometry(carWidth * 0.88, 1.65, 3.6), locoMat);
+        nose.position.set(0, deckY + 0.95, 0.85);
+        carGroup.add(nose);
+
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(carWidth + 0.08, 0.26, 3.3), stripeMat);
+        stripe.position.set(0, deckY + 1.2, -carLength * 0.24);
+        carGroup.add(stripe);
+
+        const headlight = new THREE.Mesh(
+          new THREE.SphereGeometry(0.14, 12, 12),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffbeb, emissiveIntensity: 2.5 })
+        );
+        headlight.position.set(0, deckY + 1.45, 2.68);
+        carGroup.add(headlight);
+      }
+
+      scene.add(carGroup);
+      return { group: carGroup, bogieGroups, length: carLength, type };
+    }
+
+    const consistSpecs = ['tank', 'box', 'flat', 'intermodal', 'bulkhead', 'hopper', 'autorack', 'gondola'];
+    const trainCars = consistSpecs.map((t, idx) => createRollingCar(t, idx));
+
+    let routeCurve = buildRouteCurve(currentBranch);
+    buildEnvironment(routeCurve);
+
+    let headT = 0.06;
+    let speedMps = 0;
+    let throttleNotch = 0;
+    let brakeNotch = 1;
+    let angleCockOpen = true;
+    let doorsOpen = false;
+    let currentRole = 'ENGINEER';
+    let brakePipePsi = 90;
+    let brakeCylPsi = 0;
+
+    let camMode = 'cab';
+    let lookYaw = 0;
+    let lookPitch = -0.02;
+    let panOffset = new THREE.Vector3(0, 0, 0);
+    let targetFov = 52;
+    let isLeftDragging = false;
+    let isRightDragging = false;
+    let lastMouse = { x: 0, y: 0 };
+    const keysDown = new Set();
+
+    function showToast(msg) {
+      const el = document.getElementById('status-toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+
+    window.setCameraMode = function (mode) {
+      camMode = mode;
+      ['cab', 'signal', 'bogie', 'yard'].forEach((m) => {
+        document.getElementById('cam-' + m).classList.toggle('active', m === mode);
+      });
+      panOffset.set(0, 0, 0);
+      if (mode === 'signal') {
+        targetFov = 24;
+        lookPitch = 0.14;
+        showToast('Signal Zoom active — drag to look around signals');
+      } else if (mode === 'cab') {
+        targetFov = 52;
+        lookPitch = -0.02;
+        lookYaw = 0;
+      } else if (mode === 'bogie') {
+        targetFov = 46;
+        lookPitch = -0.18;
+      } else if (mode === 'yard') {
+        targetFov = 58;
+        lookPitch = -0.35;
+      }
+    };
+
+    window.adjustZoom = function (deltaFov) {
+      targetFov = THREE.MathUtils.clamp(targetFov + deltaFov, 16, 75);
+      document.getElementById('fov-readout').textContent = `FOV ${Math.round(targetFov)}°`;
+    };
+
+    window.resetLookAngle = function () {
+      lookYaw = 0;
+      lookPitch = camMode === 'signal' ? 0.14 : -0.02;
+      panOffset.set(0, 0, 0);
+      showToast('Look angle centered');
+    };
+
+    window.changeBranch = function (val) {
+      currentBranch = val;
+      routeCurve = buildRouteCurve(currentBranch);
+      buildEnvironment(routeCurve);
+      headT = 0.06;
+      speedMps = 0;
+      const labels = {
+        aline_rocky_mount: 'Acca Yard (37.5900°N) → James River → Bellwood → Rocky Mount (35.9380°N)',
+        fulton_peninsula: 'Acca Yard (37.5900°N) → Fulton Yard (37.5107°N, 77.4085°W)',
+        bellwood_hopewell: 'Bellwood Yard / Junction MP S8.0 (37.4280°N, 77.4480°W) → Hopewell Sub'
+      };
+      document.getElementById('route-readout').textContent = labels[val];
+      showToast(`Routed: ${labels[val]}`);
+    };
+
+    window.jumpToLandmark = function (tVal) {
+      headT = Number(tVal);
+      speedMps = 0;
+      panOffset.set(0, 0, 0);
+      const sel = document.getElementById('warp-select');
+      showToast(sel.options[sel.selectedIndex].text);
+    };
+
+    window.setThrottle = function (val) {
+      throttleNotch = Number(val);
+      const label = throttleNotch === 0 ? '0 (Idle)' : (throttleNotch > 0 ? `N${throttleNotch}` : `Dyn ${Math.abs(throttleNotch)}`);
+      document.getElementById('throttle-val').textContent = label;
+    };
+
+    window.setBrake = function (val) {
+      brakeNotch = Number(val);
+      const labels = ['Release (90 PSI)', 'Running (85 PSI)', 'Min Set (78 PSI)', 'Service 1 (70 PSI)', 'Service 2 (60 PSI)', 'Full Service (50 PSI)'];
+      document.getElementById('brake-val').textContent = labels[brakeNotch] || 'Service';
+    };
+
+    window.toggleAngleCock = function () {
+      angleCockOpen = !angleCockOpen;
+      const btn = document.getElementById('btn-anglecock');
+      btn.textContent = `Angle Cock: ${angleCockOpen ? 'OPEN' : 'CLOSED'}`;
+      btn.classList.toggle('active', !angleCockOpen);
+      showToast(angleCockOpen ? 'Trainline angle cock OPEN' : 'Angle cock CLOSED');
+    };
+
+    window.toggleCarDoors = function () {
+      doorsOpen = !doorsOpen;
+      const btn = document.getElementById('btn-doors');
+      btn.textContent = `Box Doors: ${doorsOpen ? 'OPEN' : 'CLOSED'}`;
+      btn.classList.toggle('active', doorsOpen);
+    };
+
+    window.toggleRole = function () {
+      currentRole = currentRole === 'ENGINEER' ? 'CONDUCTOR' : 'ENGINEER';
+      document.getElementById('role-badge').textContent = currentRole;
+      document.getElementById('btn-role').textContent = `Role: ${currentRole === 'ENGINEER' ? 'Engineer' : 'Conductor'}`;
+      showToast(`Switched active cab role to ${currentRole}`);
+    };
+
+    window.emergencyBrake = function () {
+      brakeNotch = 5;
+      throttleNotch = 0;
+      document.getElementById('brake-slider').value = 5;
+      document.getElementById('throttle-slider').value = 0;
+      window.setBrake(5);
+      window.setThrottle(0);
+      brakePipePsi = 0;
+      brakeCylPsi = 64;
+      showToast('EMERGENCY BRAKE APPLIED');
+    };
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('mousedown', (e) => {
+      lastMouse = { x: e.clientX, y: e.clientY };
+      if (e.button === 0) isLeftDragging = true;
+      if (e.button === 2) isRightDragging = true;
+    });
+    window.addEventListener('mouseup', () => {
+      isLeftDragging = false;
+      isRightDragging = false;
+    });
+    window.addEventListener('mousemove', (e) => {
+      const dx = e.clientX - lastMouse.x;
+      const dy = e.clientY - lastMouse.y;
+      lastMouse = { x: e.clientX, y: e.clientY };
+
+      if (isLeftDragging) {
+        const sens = (targetFov / 52) * 0.0045;
+        lookYaw -= dx * sens;
+        lookPitch = THREE.MathUtils.clamp(lookPitch - dy * sens, -1.25, 1.25);
+      } else if (isRightDragging) {
+        panOffset.x -= dx * 0.05;
+        panOffset.y += dy * 0.05;
+      }
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      window.adjustZoom(e.deltaY * 0.025);
+    }, { passive: false });
+
+    window.addEventListener('keydown', (e) => keysDown.add(e.code));
+    window.addEventListener('keyup', (e) => keysDown.delete(e.code));
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    let lastTime = performance.now();
+    function stepSimulation(dt) {
+      const curveLen = routeCurve.getLength();
+
+      const panSpeed = 16 * dt;
+      if (keysDown.has('KeyA') || keysDown.has('ArrowLeft')) panOffset.x -= panSpeed;
+      if (keysDown.has('KeyD') || keysDown.has('ArrowRight')) panOffset.x += panSpeed;
+      if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) panOffset.z -= panSpeed;
+      if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) panOffset.z += panSpeed;
+
+      const targetBp = angleCockOpen ? Math.max(0, 90 - brakeNotch * 8) : brakePipePsi;
+      brakePipePsi = THREE.MathUtils.lerp(brakePipePsi, targetBp, dt * 1.4);
+
+      const targetBc = angleCockOpen ? Math.max(0, (85 - brakePipePsi) * 1.65) : brakeCylPsi;
+      brakeCylPsi = THREE.MathUtils.lerp(brakeCylPsi, targetBc, dt * 1.8);
+
+      const tractiveAccel = throttleNotch * 0.38;
+      const brakeDecel = (brakeCylPsi / 64) * 1.35;
+      const rollingDrag = speedMps * 0.014;
+      const netAccel = tractiveAccel - Math.sign(speedMps || 1) * (brakeDecel + rollingDrag);
+
+      speedMps = THREE.MathUtils.clamp(speedMps + netAccel * dt, -8, 31.2);
+      if (Math.abs(speedMps) < 0.04 && throttleNotch === 0 && brakeCylPsi > 8) {
+        speedMps = 0;
+      }
+
+      headT = THREE.MathUtils.clamp(headT + (speedMps * dt) / curveLen, 0.02, 0.94);
+
+      let cursorDist = headT * curveLen;
+      trainCars.forEach((car) => {
+        const tCar = THREE.MathUtils.clamp(cursorDist / curveLen, 0.005, 0.995);
+        const frame = getTrackFrame(routeCurve, tCar);
+        const yaw = Math.atan2(frame.tan.x, frame.tan.z);
+
+        car.group.position.set(frame.pt.x, 0, frame.pt.z);
+        car.group.rotation.y = yaw;
+
+        car.bogieGroups.forEach((bg, bIdx) => {
+          const offsetT = THREE.MathUtils.clamp(tCar + (bIdx === 0 ? 0.01 : -0.01), 0.005, 0.995);
+          const fB = getTrackFrame(routeCurve, offsetT);
+          const yawB = Math.atan2(fB.tan.x, fB.tan.z);
+          bg.rotation.y = THREE.MathUtils.clamp(yawB - yaw, -0.18, 0.18);
+        });
+
+        cursorDist -= (car.length + 0.85);
+      });
+
+      animatedDoors.forEach((d) => {
+        const targetOffset = doorsOpen ? 0.95 : 0.0;
+        d.leftDoor.position.z = THREE.MathUtils.lerp(d.leftDoor.position.z, -0.58 - targetOffset, dt * 5);
+        d.rightDoor.position.z = 0.58 + targetOffset;
+      });
+
+      roadVehicles.forEach((rv) => {
+        rv.mesh.position.x += rv.dir * rv.speed * dt;
+        if (rv.mesh.position.x > 180) rv.mesh.position.x = -180;
+        if (rv.mesh.position.x < -180) rv.mesh.position.x = 180;
+      });
+
+      camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, dt * 8);
+      camera.updateProjectionMatrix();
+      document.getElementById('fov-readout').textContent = `FOV ${Math.round(camera.fov)}°`;
+
+      const leadFrame = getTrackFrame(routeCurve, headT);
+      const leadYaw = Math.atan2(leadFrame.tan.x, leadFrame.tan.z);
+
+      let basePos = new THREE.Vector3();
+      let baseLookTarget = new THREE.Vector3();
+
+      if (camMode === 'cab' || camMode === 'signal') {
+        const cabOffset = currentRole === 'ENGINEER' ? 0.65 : -0.65;
+        basePos.copy(leadFrame.pt)
+          .addScaledVector(leadFrame.right, cabOffset)
+          .add(new THREE.Vector3(0, 3.25, 0))
+          .add(panOffset);
+
+        const lookDir = new THREE.Vector3(
+          Math.sin(leadYaw + lookYaw) * Math.cos(lookPitch),
+          Math.sin(lookPitch),
+          Math.cos(leadYaw + lookYaw) * Math.cos(lookPitch)
+        ).normalize();
+        baseLookTarget.copy(basePos).addScaledVector(lookDir, 45);
+      } else if (camMode === 'bogie') {
+        const car2Frame = getTrackFrame(routeCurve, Math.max(0.01, headT - 0.025));
+        basePos.copy(car2Frame.pt)
+          .addScaledVector(car2Frame.right, 3.6)
+          .add(new THREE.Vector3(0, 1.35, 0))
+          .add(panOffset);
+
+        const lookDir = new THREE.Vector3(
+          Math.sin(leadYaw + lookYaw) * Math.cos(lookPitch),
+          Math.sin(lookPitch),
+          Math.cos(leadYaw + lookYaw) * Math.cos(lookPitch)
+        ).normalize();
+        baseLookTarget.copy(basePos).addScaledVector(lookDir, 20);
+      } else {
+        basePos.set(leadFrame.pt.x + 28 + panOffset.x, 38 + panOffset.y, leadFrame.pt.z - 42 + panOffset.z);
+        baseLookTarget.set(
+          leadFrame.pt.x + Math.sin(lookYaw) * 30,
+          1.5 + Math.sin(lookPitch) * 20,
+          leadFrame.pt.z + 25
+        );
+      }
+
+      camera.position.copy(basePos);
+      camera.lookAt(baseLookTarget);
+
+      const mph = Math.abs(speedMps * 2.23694);
+      const gps = worldToApproxGps(leadFrame.pt, routeCurve, headT);
+      document.getElementById('g-speed').textContent = `${mph.toFixed(1)} MPH`;
+      document.getElementById('g-bp').textContent = `${Math.round(brakePipePsi)} PSI`;
+      document.getElementById('g-bc').textContent = `${Math.round(brakeCylPsi)} PSI`;
+      document.getElementById('g-gps').textContent = `${gps.lat.toFixed(4)}, ${gps.lon.toFixed(4)}`;
+
+      const sigText = document.getElementById('signal-text');
+      const sigDot = document.getElementById('signal-dot');
+      if (headT > 0.48 && headT < 0.62) {
+        sigText.textContent = 'APPROACH • 7.8m CLR';
+        sigDot.style.color = '#f59e0b';
+        sigDot.style.background = '#f59e0b';
+      } else {
+        sigText.textContent = 'CLEAR • 7.8m CLR';
+        sigDot.style.color = '#22c55e';
+        sigDot.style.background = '#22c55e';
+      }
+    }
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      stepSimulation(dt);
+      renderer.render(scene, camera);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
