@@ -130,6 +130,7 @@ var zoom_times: Array = []
 var jump_to: float = -1.0
 var jump_xing: float = -1.0
 var xing_cam: bool = false
+var quality_override: int = -1
 
 var cab: Node3D
 var pivot: Node3D
@@ -159,6 +160,8 @@ func _ready() -> void:
 			rng.seed = int(a.substr(7))
 		elif a.begins_with("--jump="):
 			jump_to = float(a.substr(7))
+		elif a.begins_with("--quality="):
+			quality_override = int(a.substr(10))
 		elif a == "--xing-cam":
 			xing_cam = true
 		elif a.begins_with("--jump-xing="):
@@ -174,6 +177,11 @@ func _ready() -> void:
 			for t in a.substr(13).split(","):
 				zoom_times.append(float(t))
 	art.setup()
+	art.quality = 1 if OS.has_feature("mobile") else 2
+	_load_best()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--quality="):
+			art.quality = int(a.substr(10))
 	_make_materials()
 	art.make_environment(self)
 	_make_ground()
@@ -344,6 +352,18 @@ func set_classic_db(on: bool) -> void:
 	_save_best()
 	_build_cab_model()
 	hud.configure_controls()
+
+func cycle_quality() -> void:
+	art.apply_quality((art.quality + 1) % 4)
+	_save_best()
+	# rebuild scenery so tree density matches the new setting
+	for k in chunks.keys():
+		chunks[k].queue_free()
+	chunks.clear()
+	_stream()
+
+func quality_name() -> String:
+	return art.QUALITY_NAMES[art.quality]
 
 func alerter_reset() -> void:
 	if running and not game_over:
@@ -1056,12 +1076,14 @@ func _load_best() -> void:
 		best = int(cf.get_value("scores", "best", 0))
 		loco_model = str(cf.get_value("settings", "loco", "modern"))
 		classic_db = bool(cf.get_value("settings", "classic_db", false))
+		art.quality = int(cf.get_value("settings", "quality", art.quality))
 
 func _save_best() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("scores", "best", best)
 	cf.set_value("settings", "loco", loco_model)
 	cf.set_value("settings", "classic_db", classic_db)
+	cf.set_value("settings", "quality", art.quality)
 	cf.save("user://save.cfg")
 
 func yardmaster_info() -> Array:
@@ -1459,6 +1481,7 @@ func _build_chunk(i: int) -> void:
 	rail_mi.mesh = rails.commit()
 	rail_mi.material_override = art.mats["rail"]
 	node.add_child(rail_mi)
+	bal.generate_tangents()
 	var bal_mi := MeshInstance3D.new()
 	bal_mi.mesh = bal.commit()
 	bal_mi.material_override = art.mats["ballast"]
@@ -1492,7 +1515,7 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 			if d > ev.start - 25.0 and d < ev.end + 25.0 and signf(x) == ev.side and absf(x) < OFF + 32.0:
 				return true
 		return false
-	art.foliage(node, c0, c1, blocked, 1.0, srng)
+	art.foliage(node, c0, c1, blocked, art.foliage_density(), srng)
 	art.pole_line(node, c0, c1, -9.5, func(pd: float) -> bool: return crossing_d > 0.0 and absf(pd - crossing_d) < 8.0)
 	# ---- mileposts
 	var m := int(ceil(c0 / 1609.34))

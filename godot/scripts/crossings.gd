@@ -20,12 +20,12 @@ func setup(a, g) -> void:
 	mats["arm"] = _tex_mat("res://textures/gate_arm.png", Vector3(1, 1, 1), 0.5)
 	mats["cb1"] = _tex_mat("res://textures/crossbuck1.png", Vector3(1, 1, 1), 0.6)
 	mats["cb2"] = _tex_mat("res://textures/crossbuck2.png", Vector3(1, 1, 1), 0.6)
-	mats["panel"] = _tex_mat("res://textures/xing_panel.png", Vector3(0.35, 0.35, 0.35), 0.9, true)
+	mats["panel"] = art.mats["concrete"]
 	mats["rxr"] = _tex_mat("res://textures/road_rxr.png", Vector3(1, 1, 1), 0.9)
 	mats["rxr"].cull_mode = BaseMaterial3D.CULL_DISABLED
 	art.mats["road"].cull_mode = BaseMaterial3D.CULL_DISABLED
 	mats["mast"] = art.mat(Color(0.62, 0.63, 0.64), 0.45, 0.6)
-	mats["concrete"] = art.mat(Color(0.6, 0.59, 0.56), 0.95)
+	mats["concrete"] = art.mats["concrete"]
 	mats["housing"] = art.mat(Color(0.06, 0.06, 0.06), 0.7)
 	mats["lamp_off"] = art.mat(Color(0.25, 0.04, 0.03), 0.3)
 	var on := StandardMaterial3D.new()
@@ -70,10 +70,11 @@ func _road_strip(parent: Node3D, x0: float, x1: float, y0: float, y1: float, z_c
 	var nrm: Vector3 = e1.cross(e3).normalized()
 	if nrm.y < 0.0:
 		nrm = -nrm
-	for j in [0, 1, 2, 0, 2, 3]:
+	for j in art.quad_order(c, nrm):
 		st.set_normal(nrm)
 		st.set_uv(uv[j])
 		st.add_vertex(c[j])
+	st.generate_tangents()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat

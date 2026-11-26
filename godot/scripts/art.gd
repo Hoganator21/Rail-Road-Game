@@ -64,41 +64,53 @@ func shared(key: String, c: Color, rough: float = 0.8, metal: float = 0.0) -> St
 	return mats[key]
 
 func _make_materials() -> void:
-	var rail := StandardMaterial3D.new()
-	rail.vertex_color_use_as_albedo = true
-	rail.metallic = 0.62
-	rail.roughness = 0.36
-	rail.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var rail := ShaderMaterial.new()
+	rail.shader = load("res://shaders/rail.gdshader")
+	rail.set_shader_parameter("rust", _tex("res://textures/pbr/rust_coarse_01_diff.jpg"))
+	rail.set_shader_parameter("rust_n", _tex("res://textures/pbr/rust_coarse_01_nor.jpg"))
 	mats["rail"] = rail
 	var ballast := StandardMaterial3D.new()
-	ballast.albedo_texture = _tex("res://textures/ballast.png")
+	ballast.albedo_texture = _tex("res://textures/pbr/rocks_ground_01_diff.jpg")
+	ballast.albedo_color = Color(0.92, 0.92, 0.95)
 	ballast.normal_enabled = true
-	ballast.normal_texture = _tex("res://textures/ballast_normal.png")
-	ballast.normal_scale = 1.2
-	ballast.roughness = 0.94
+	ballast.normal_texture = _tex("res://textures/pbr/rocks_ground_01_nor.jpg")
+	ballast.normal_scale = 1.4
+	ballast.roughness_texture = _tex("res://textures/pbr/rocks_ground_01_rough.jpg")
+	ballast.roughness = 1.0
+	ballast.uv1_scale = Vector3(0.8, 0.8, 1.0)
 	ballast.cull_mode = BaseMaterial3D.CULL_DISABLED
 	ballast.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mats["ballast"] = ballast
 	var tie := StandardMaterial3D.new()
-	tie.albedo_texture = _tex("res://textures/wood.png")
+	tie.albedo_texture = _tex("res://textures/pbr/rough_wood_diff.jpg")
+	tie.albedo_color = Color(0.5, 0.42, 0.36)
 	tie.normal_enabled = true
-	tie.normal_texture = _tex("res://textures/wood_normal.png")
-	tie.roughness = 0.88
+	tie.normal_texture = _tex("res://textures/pbr/rough_wood_nor.jpg")
+	tie.normal_scale = 1.5
+	tie.roughness_texture = _tex("res://textures/pbr/rough_wood_rough.jpg")
+	tie.uv1_triplanar = true
+	tie.uv1_world_triplanar = true
+	tie.uv1_scale = Vector3(0.55, 0.55, 0.55)
 	tie.vertex_color_use_as_albedo = true
 	tie.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mats["tie"] = tie
 	mats["plate"] = mat(Color("3b3029"), 0.78, 0.35)
-	var ground := StandardMaterial3D.new()
-	ground.albedo_texture = _tex("res://textures/grass.png")
-	ground.vertex_color_use_as_albedo = true
-	ground.roughness = 1.0
-	ground.albedo_color = Color(0.8, 0.84, 0.74)
-	ground.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var ground := ShaderMaterial.new()
+	ground.shader = load("res://shaders/ground.gdshader")
+	ground.set_shader_parameter("grass", _tex("res://textures/pbr/grass_field_diff.jpg"))
+	ground.set_shader_parameter("grass_n", _tex("res://textures/pbr/grass_field_nor.jpg"))
+	ground.set_shader_parameter("path", _tex("res://textures/pbr/grass_path_2_diff.jpg"))
+	ground.set_shader_parameter("path_n", _tex("res://textures/pbr/grass_path_2_nor.jpg"))
 	mats["ground"] = ground
-	mats["far_ground"] = mat(Color("7d8650"), 1.0)
+	var far: ShaderMaterial = ground.duplicate()
+	far.set_shader_parameter("use_vertex_color", 0.0)
+	mats["far_ground"] = far
 	var road := StandardMaterial3D.new()
 	road.albedo_texture = _tex("res://textures/road.png")
-	road.roughness = 0.9
+	road.normal_enabled = true
+	road.normal_texture = _tex("res://textures/pbr/asphalt_02_nor.jpg")
+	road.roughness_texture = _tex("res://textures/pbr/asphalt_02_rough.jpg")
+	road.roughness = 1.0
 	road.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mats["road"] = road
 	for k in ["oak", "oak2", "pine", "bush"]:
@@ -121,6 +133,14 @@ func _make_materials() -> void:
 	mats["roof"] = mat(Color("55585c"), 0.7, 0.3)
 	mats["door"] = mat(Color("6f6a5c"))
 	mats["dock"] = mat(Color("8c8c86"))
+	var conc := StandardMaterial3D.new()
+	conc.albedo_texture = _tex("res://textures/pbr/concrete_floor_01_diff.jpg")
+	conc.normal_enabled = true
+	conc.normal_texture = _tex("res://textures/pbr/concrete_floor_01_nor.jpg")
+	conc.roughness_texture = _tex("res://textures/pbr/concrete_floor_01_rough.jpg")
+	conc.uv1_triplanar = true
+	conc.uv1_scale = Vector3(0.4, 0.4, 0.4)
+	mats["concrete"] = conc
 	mats["silo"] = mat(Color("c9c3b4"), 0.9)
 	mats["silo_base"] = mat(Color("8a5a2b"))
 	mats["tank_white"] = mat(Color("e8e6df"), 0.4, 0.3)
@@ -177,54 +197,105 @@ void sky() {
 }
 """
 
+var env: Environment
+var sun: DirectionalLight3D
+var quality: int = 2            # 0 low, 1 medium, 2 high, 3 ultra
+const QUALITY_NAMES := ["LOW", "MEDIUM", "HIGH", "ULTRA"]
+const SKY_YAW := PI
+const PANO_SUN := Vector3(0.376, 0.743, -0.553)   # sun direction measured from the HDRI
+
 func make_environment(parent: Node) -> DirectionalLight3D:
-	var env := Environment.new()
+	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sm := ShaderMaterial.new()
-	var sh := Shader.new()
-	sh.code = SKY_SHADER
-	sm.shader = sh
+	sm.shader = load("res://shaders/sky_pano.gdshader")
+	sm.set_shader_parameter("pano", load("res://textures/pbr/sky_partly_cloudy.hdr"))
+	sm.set_shader_parameter("yaw", SKY_YAW)
+	sm.set_shader_parameter("exposure", 0.33)
 	sky.sky_material = sm
+	sky.radiance_size = Sky.RADIANCE_SIZE_128
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.55
+	env.ambient_light_energy = 0.9
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 0.85
+	env.tonemap_exposure = 0.95
 	env.fog_enabled = true
-	env.fog_light_color = Color("b9cbe0")
-	env.fog_density = 0.00045
+	env.fog_light_color = Color(0.74, 0.8, 0.88)
+	env.fog_density = 0.00035
 	env.fog_sky_affect = 0.0
-	if renderer != "gl_compatibility":
-		env.glow_enabled = true
-		env.glow_intensity = 0.35
-		env.glow_bloom = 0.04
-		env.glow_hdr_threshold = 1.2
-	if hi_end:
-		env.ssao_enabled = true
-		env.ssao_radius = 1.2
-		env.ssao_intensity = 1.6
-		env.ssil_enabled = true
-		env.ssil_intensity = 0.6
+	env.fog_aerial_perspective = 0.5
 	var we := WorldEnvironment.new()
 	we.environment = env
 	parent.add_child(we)
-	# sun: same direction as v11 (elevation ~32 deg, ahead-left)
-	var sun_dir := Vector3(-0.486, 0.53, -0.695).normalized()
-	var sun := DirectionalLight3D.new()
-	sun.light_color = Color("fff1dc")
-	sun.light_energy = 1.25
+	# sun lined up with the sun in the photographed sky
+	var c := cos(SKY_YAW)
+	var sn := sin(SKY_YAW)
+	var sun_dir := Vector3(c * PANO_SUN.x + sn * PANO_SUN.z, PANO_SUN.y, -sn * PANO_SUN.x + c * PANO_SUN.z).normalized()
+	sun = DirectionalLight3D.new()
+	sun.light_color = Color(1.0, 0.96, 0.9)
+	sun.light_energy = 1.7
 	sun.shadow_enabled = true
 	sun.shadow_bias = 0.03
 	sun.shadow_normal_bias = 1.0
-	sun.directional_shadow_max_distance = 220.0 if hi_end else 90.0
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if hi_end else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.shadow_blur = 1.2
 	parent.add_child(sun)
 	sun.basis = Basis.looking_at(-sun_dir, Vector3.UP)
+	apply_quality(quality)
 	return sun
 
+## Graphics quality levels. Phones default to MEDIUM, PCs to HIGH.
+func apply_quality(q: int) -> void:
+	quality = clampi(q, 0, 3)
+	if env == null:
+		return
+	var vp: Viewport = null
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree:
+		vp = (ml as SceneTree).root
+	var fwd := renderer == "forward_plus"
+	var mobile_r := renderer == "mobile"
+	env.glow_enabled = quality >= 1 and renderer != "gl_compatibility"
+	env.glow_intensity = 0.3
+	env.glow_bloom = 0.03
+	env.glow_hdr_threshold = 1.3
+	env.ssao_enabled = fwd and quality >= 2
+	env.ssao_radius = 1.2
+	env.ssao_intensity = 1.8
+	env.ssil_enabled = fwd and quality >= 3
+	env.ssil_intensity = 0.6
+	env.sdfgi_enabled = fwd and quality >= 3
+	env.sdfgi_use_occlusion = true
+	env.sdfgi_cascades = 4
+	env.volumetric_fog_enabled = fwd and quality >= 3
+	env.volumetric_fog_density = 0.0025
+	env.volumetric_fog_albedo = Color(0.85, 0.88, 0.92)
+	env.volumetric_fog_length = 120.0
+	if sun:
+		sun.directional_shadow_max_distance = [70.0, 110.0, 180.0, 260.0][quality]
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if quality < 2 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.shadow_enabled = quality >= 1 or not mobile_r
+	RenderingServer.directional_shadow_atlas_set_size([1024, 2048, 4096, 4096][quality], true)
+	RenderingServer.directional_soft_shadow_filter_set_quality([RenderingServer.SHADOW_QUALITY_HARD, RenderingServer.SHADOW_QUALITY_SOFT_LOW, RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM, RenderingServer.SHADOW_QUALITY_SOFT_HIGH][quality])
+	if vp:
+		vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_2X, Viewport.MSAA_4X][quality]
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if quality == 0 else Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = 0.75 if quality == 0 else 1.0
+
+func foliage_density() -> float:
+	return [0.45, 0.75, 1.0, 1.3][quality]
+
 # ================================================================ track pieces
+## Order for a quad's two triangles so the front face points along nrm.
+func quad_order(v: Array, nrm: Vector3) -> Array:
+	var a: Vector3 = v[0]
+	var b: Vector3 = v[1]
+	var c: Vector3 = v[2]
+	if (c - a).cross(b - a).dot(nrm) >= 0.0:
+		return [0, 1, 2, 0, 2, 3]
+	return [0, 2, 1, 0, 3, 2]
+
 func _outward(profile: Array) -> float:
 	var area := 0.0
 	for k in profile.size():
@@ -259,7 +330,7 @@ func sweep(st: SurfaceTool, profile: Array, line: PackedVector2Array, y0: float,
 					col = STEEL if top else (HEADSIDE if head else RUST)
 				else:
 					col = POINT_STEEL if top else (POINT_SIDE if head else RUST)
-			for j in [0, 1, 2, 0, 2, 3]:
+			for j in quad_order(v, nrm):
 				st.set_normal(nrm)
 				st.set_color(col)
 				if uv_scale > 0.0:
@@ -336,16 +407,17 @@ func ground_strip(d0: float, d1: float) -> MeshInstance3D:
 	for iz in zs.size() - 1:
 		for ix in xs.size() - 1:
 			var quad := [Vector2(xs[ix], zs[iz]), Vector2(xs[ix + 1], zs[iz]), Vector2(xs[ix + 1], zs[iz + 1]), Vector2(xs[ix], zs[iz + 1])]
-			for j in [0, 1, 2, 0, 2, 3]:
+			for j in [0, 2, 1, 0, 3, 2]:
 				var p: Vector2 = quad[j]
 				var h := ground_h(p.x, p.y)
 				var e := 1.0
 				var nrm := Vector3(ground_h(p.x - e, p.y) - ground_h(p.x + e, p.y), 2.0 * e, ground_h(p.x, p.y - e) - ground_h(p.x, p.y + e)).normalized()
 				var n := g_noise(p.x, p.y)
 				st.set_normal(nrm)
-				st.set_color(Color(0.85 + 0.15 * n, 0.8 + 0.1 * n, 0.55 + 0.08 * n))
+				st.set_color(Color(0.92 + 0.08 * n, 0.92 + 0.06 * n, 0.85 + 0.05 * n))
 				st.set_uv(Vector2(p.x * 0.1, p.y * 0.1))
 				st.add_vertex(Vector3(p.x, h, p.y))
+	st.generate_tangents()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mats["ground"]
@@ -369,10 +441,11 @@ func road_strip(x: float, d0: float, d1: float, width: float = 8.0) -> MeshInsta
 	var c := [Vector3(x - width / 2, 0, -d0), Vector3(x + width / 2, 0, -d0), Vector3(x + width / 2, 0, -d1), Vector3(x - width / 2, 0, -d1)]
 	var len := d1 - d0
 	var uv := [Vector2(0, 0), Vector2(1, 0), Vector2(1, len / 12.0), Vector2(0, len / 12.0)]
-	for j in [0, 1, 2, 0, 2, 3]:
+	for j in quad_order(c, Vector3.UP):
 		st.set_normal(Vector3.UP)
 		st.set_uv(uv[j])
 		st.add_vertex(c[j])
+	st.generate_tangents()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mats["road"]

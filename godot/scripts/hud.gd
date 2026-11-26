@@ -36,6 +36,13 @@ var over_score: Label
 var best_start_lbl: Label
 var ym_panel: PanelContainer
 var loco_btns: Array = []
+var q_btn_start: Button
+var q_btn_pause: Button
+
+func _upd_q() -> void:
+	for b in [q_btn_start, q_btn_pause]:
+		if b:
+			b.text = "Graphics:  " + game.quality_name()
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -413,6 +420,9 @@ func _build_start() -> void:
 	db_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(db_btn)
 	_pick_loco(game.loco_model)
+	q_btn_start = _button("", Vector2(260, 40), func(): game.cycle_quality(); _upd_q(), Color(0.2, 0.2, 0.24, 0.95), 15)
+	q_btn_start.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(q_btn_start)
 	var b := _button("DEPART", Vector2(280, 66), func(): game.start_game(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
@@ -460,6 +470,10 @@ func _build_pause() -> void:
 	var b := _button("RESUME", Vector2(280, 84), func(): game.toggle_pause(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
+	q_btn_pause = _button("", Vector2(280, 56), func(): game.cycle_quality(); _upd_q(), Color(0.2, 0.2, 0.24, 0.95), 20)
+	q_btn_pause.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(q_btn_pause)
+	_upd_q()
 	var q := _button("QUIT GAME", Vector2(280, 70), func(): get_tree().quit(), Color(0.4, 0.1, 0.1, 0.95), 24)
 	q.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(q)
