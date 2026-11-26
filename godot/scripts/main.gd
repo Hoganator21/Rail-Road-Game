@@ -27,6 +27,7 @@ const AHEAD_EVENTS := 2600.0
 const MASS := 1.25e6
 const LOCOS := {
 	"modern": {"te": 430e3, "p": 2.4e6, "db": 300e3, "split": false, "brake": "CCB", "name": "ES44AC"},
+	"sd70ace": {"te": 425e3, "p": 2.35e6, "db": 300e3, "split": true, "brake": "CCB", "name": "SD70ACe"},
 	"classic": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2"},
 	"classic_lhf": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2 LHF"},
 }
@@ -331,7 +332,7 @@ func _apply_loco_spec() -> void:
 	P_MAX = sp["p"]
 	DB_MAX = sp["db"]
 	split_db = sp["split"]
-	has_db = true if not split_db else classic_db
+	has_db = classic_db if loco_model.begins_with("classic") else true
 
 func _build_cab_model() -> void:
 	_apply_loco_spec()

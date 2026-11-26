@@ -409,9 +409,9 @@ func _build_start() -> void:
 	pick.alignment = BoxContainer.ALIGNMENT_CENTER
 	pick.add_theme_constant_override("separation", 12)
 	loco_btns = []
-	for opt in [["modern", "MODERN WIDE CAB\nES44AC - desktop"], ["classic", "CLASSIC HOOD UNIT\nshort hood forward"], ["classic_lhf", "CLASSIC HOOD UNIT\nlong hood forward"]]:
+	for opt in [["modern", "GE ES44AC\nwide cab, desktop"], ["sd70ace", "EMD SD70ACe\nwide cab, AAR stand"], ["classic", "EMD GP38-2\nshort hood forward"], ["classic_lhf", "EMD GP38-2\nlong hood forward"]]:
 		var kind: String = opt[0]
-		var lb := _button(opt[1], Vector2(240, 58), func(): _pick_loco(kind), Color(0.15, 0.22, 0.35, 0.95), 15)
+		var lb := _button(opt[1], Vector2(215, 58), func(): _pick_loco(kind), Color(0.15, 0.22, 0.35, 0.95), 15)
 		lb.set_meta("kind", kind)
 		loco_btns.append(lb)
 		pick.add_child(lb)

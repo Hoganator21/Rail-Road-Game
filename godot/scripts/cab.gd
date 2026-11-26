@@ -89,6 +89,9 @@ func _materials() -> void:
 	m["cabsig"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0, 0.5))
 	m["caution"] = _decal("res://textures/decals2.png", Vector2(0.5, 0.5), Vector2(0.5, 0.5))
 	m["vinyl"] = _mat(Color(0.07, 0.07, 0.075), 0.55)
+	m["chrome"] = _mat(Color(0.82, 0.82, 0.8), 0.18, 1.0)
+	m["cast"] = _mat(Color(0.16, 0.16, 0.17), 0.7, 0.4)
+	m["radio_red"] = _mat(Color(0.82, 0.18, 0.12), 0.45)
 	m["stainless"] = _mat(Color(0.72, 0.72, 0.7), 0.32, 0.85)
 	m["ext_red"] = _mat(Color(0.7, 0.08, 0.06), 0.35, 0.1)
 	m["leather"] = _mat(Color(0.62, 0.48, 0.32), 0.85)
@@ -204,7 +207,19 @@ func pivot(p: Node, pos: Vector3, rot: Vector3 = Vector3.ZERO) -> Node3D:
 # ================================================================ instruments
 ## A round gauge face on parent p (in p's XY plane, facing +z) with needles.
 func gauge(p: Node, mat_key: String, r: float, pos: Vector3, needle_keys: Array, needle_cols: Array) -> void:
-	box(p, r * 2.25, r * 2.25, 0.03, m["black"], pos.x, pos.y, pos.z - 0.012)
+	var can := cyl(p, r * 1.08, r * 1.08, 0.05, m["black"], pos + Vector3(0, 0, -0.022), 24)
+	can.rotation.x = PI / 2.0
+	var ring := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = r * 0.98
+	tm.outer_radius = r * 1.14
+	tm.rings = 24
+	tm.ring_segments = 8
+	ring.mesh = tm
+	ring.material_override = m["chrome"]
+	ring.position = pos + Vector3(0, 0, 0.012)
+	ring.rotation.x = PI / 2.0
+	p.add_child(ring)
 	var face := quad(p, r * 2.0, r * 2.0, m[mat_key], pos + Vector3(0, 0, 0.004), Vector3.ZERO)
 	face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for i in needle_keys.size():
@@ -349,6 +364,10 @@ func build(kind: String, dyn_brake: bool = true) -> Node3D:
 		else:
 			_exterior_classic(L)
 		_interior_classic(L, kind == "classic")
+	elif kind == "sd70ace":
+		eye = Vector3(0.86, 0.0, 1.12)
+		_exterior_modern(L)
+		_interior_aar(L)
 	else:
 		eye = Vector3(0.86, 0.0, 1.08)
 		_exterior_modern(L)
@@ -593,6 +612,33 @@ func _overhead(p: Node, w: float, ceil_y: float, top_y: float, wall: Material) -
 		ring.rotation.x = PI / 2.0
 		fp.add_child(ring)
 
+## Round lever: tapered shaft along local +x (or +y), chrome collar, knob at the end.
+func _lever_shaft(p: Node, length: float, along_y: bool, knob: Material, knob_r: float, knob_kind: String = "ball") -> void:
+	var shaft := cyl(p, 0.009, 0.014, length, m["chrome"], Vector3(0, length / 2.0, 0) if along_y else Vector3(length / 2.0, 0, 0), 10)
+	if not along_y:
+		shaft.rotation.z = -PI / 2.0
+	var c := cyl(p, 0.022, 0.022, 0.025, m["cast"], Vector3.ZERO, 14)
+	if not along_y:
+		c.rotation.z = PI / 2.0
+	var end := Vector3(0, length, 0) if along_y else Vector3(length, 0, 0)
+	if knob_kind == "ball":
+		ball(p, knob_r, knob, end)
+	else:   # cylindrical grip
+		var g := cyl(p, knob_r, knob_r * 0.85, knob_r * 3.0, knob, end + (Vector3(0, knob_r, 0) if along_y else Vector3(knob_r, 0, 0)), 12)
+		if not along_y:
+			g.rotation.z = -PI / 2.0
+
+## Cast brake-valve housing with a notched quadrant on top (handle pivots around +y).
+func _brake_valve(p: Node, pos: Vector3, rot_y: float = 0.0) -> Node3D:
+	var v := pivot(p, pos, Vector3(0, rot_y, 0))
+	box(v, 0.2, 0.1, 0.22, m["cast"], 0, -0.05, 0)
+	var dome := cyl(v, 0.09, 0.1, 0.04, m["cast"], Vector3(0, 0.02, 0), 18)
+	dome.rotation.y = 0.0
+	for i in 7:   # detent teeth around the quadrant
+		var a := -0.2 + i * 0.22
+		box(v, 0.012, 0.012, 0.02, m["chrome"], cos(a) * 0.095, 0.035, -sin(a) * 0.095)
+	return v
+
 ## Wall phone / radio handset in a cradle with a coiled cord hanging down.
 func _handset(p: Node, pos: Vector3, rot: Vector3, cord_len: float = 0.35) -> void:
 	var h := pivot(p, pos, rot)
@@ -696,8 +742,9 @@ func _interior_modern(p: Node) -> void:
 	for i in 9:
 		box(tb, 0.05, 0.004, 0.004, m["steel"], 0.05, 0.027, -0.12 + i * 0.03)
 	lever_thr = pivot(tb, Vector3(0, 0.02, 0))
-	box(lever_thr, 0.025, 0.16, 0.025, m["steel"], 0, 0.08, 0)
-	box(lever_thr, 0.07, 0.04, 0.05, m["grip"], 0, 0.17, 0)
+	_lever_shaft(lever_thr, 0.15, true, m["grip"], 0.022, "grip")
+	var tbar := cyl(lever_thr, 0.016, 0.016, 0.09, m["grip"], Vector3(0, 0.21, 0), 12)
+	tbar.rotation.z = PI / 2.0
 	var rv := pivot(p, Vector3(0.22, desk_y + 0.04, 0.5))
 	box(rv, 0.06, 0.05, 0.12, m["console"], 0, 0, 0)
 	var rh := box(rv, 0.02, 0.09, 0.02, m["steel"], 0, 0.06, -0.03)
@@ -716,11 +763,9 @@ func _interior_modern(p: Node) -> void:
 	for z in [-0.12, 0.1]:
 		box(bs, 0.03, 0.005, 0.2, m["rubber"], 0, 0.033, z)
 	lever_auto = pivot(bs, Vector3(0, 0.03, -0.12))
-	box(lever_auto, 0.03, 0.17, 0.03, m["steel"], 0, 0.085, 0)
-	ball(lever_auto, 0.035, m["knob_red"], Vector3(0, 0.18, 0))
+	_lever_shaft(lever_auto, 0.16, true, m["knob_red"], 0.032)
 	lever_ind = pivot(bs, Vector3(0, 0.03, 0.1))
-	box(lever_ind, 0.03, 0.14, 0.03, m["steel"], 0, 0.07, 0)
-	ball(lever_ind, 0.03, m["grip"], Vector3(0, 0.15, 0))
+	_lever_shaft(lever_ind, 0.13, true, m["chrome"], 0.028)
 	quad(p, 0.22, 0.11, m["warn"], Vector3(1.53, desk_y + 0.25, 0.75), Vector3(0, -PI / 2.0, 0))
 	_radio(p, Vector3(1.47, 0.05, 1.75), Vector3(0, -PI / 2.0, 0))
 	_handset(p, Vector3(1.5, -0.58, 1.45), Vector3(0, -PI / 2.0, 0), 0.3)
@@ -798,28 +843,26 @@ func _interior_classic(p: Node, nose_forward: bool) -> void:
 	gauge(gh, "g_er", 0.075, Vector3(0, 0, 0.045), ["bp", "er"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
 	gauge(gh, "g_mr", 0.075, Vector3(0.2, 0, 0.045), ["mr", "bc"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
 	# throttle (and dynamic brake if equipped): handles stick out toward the engineer
+	_notch_plate(st, Vector3(0.185, -0.33, 0.0))
 	lever_thr = pivot(st, Vector3(0.19, -0.33, 0.0))
-	box(lever_thr, 0.2, 0.022, 0.022, m["steel"], 0.1, 0, 0)
-	box(lever_thr, 0.07, 0.034, 0.034, m["grip"], 0.22, 0, 0)
+	_lever_shaft(lever_thr, 0.18, false, m["grip"], 0.02, "grip")
 	if has_db:
 		lever_db = pivot(st, Vector3(0.19, -0.2, 0.12))
-		box(lever_db, 0.16, 0.02, 0.02, m["steel"], 0.08, 0, 0)
-		ball(lever_db, 0.02, m["grip"], Vector3(0.17, 0, 0))
+		_lever_shaft(lever_db, 0.15, false, m["grip"], 0.022)
 	box(st, 0.06, 0.03, 0.1, m["steel"], 0.2, -0.43, -0.1)                         # reverser
 	var al := cyl(st, 0.03, 0.03, 0.03, m["alerter"], Vector3(0.19, -0.1, -0.2), 14)
 	al.rotation.z = PI / 2.0
 	_pickable(st, Vector3(0.19, -0.1, -0.2), 0.07, "alerter")
 	# 26L brake valve on its pedestal, ahead-left of the engineer's seat
 	var bv := pivot(p, Vector3(0.42, 0, 1.0))
-	cyl(bv, 0.08, 0.1, -0.72 - floor_y, m["console"], Vector3(0, (-0.72 + floor_y) / 2.0, 0), 12)
-	box(bv, 0.26, 0.14, 0.26, m["console"], 0, -0.66, 0)
+	cyl(bv, 0.07, 0.11, -0.72 - floor_y, m["stand_green"], Vector3(0, (-0.72 + floor_y) / 2.0, 0), 14)
+	_brake_valve(bv, Vector3(0, -0.62, 0))
 	lever_auto = pivot(bv, Vector3(0, -0.57, 0))
-	box(lever_auto, 0.03, 0.03, 0.3, m["steel"], 0, 0, -0.15)
-	ball(lever_auto, 0.03, m["grip"], Vector3(0, 0, -0.3))
+	var la := pivot(lever_auto, Vector3.ZERO, Vector3(0, PI / 2.0, 0))
+	_lever_shaft(la, 0.3, false, m["grip"], 0.03)
 	lever_ind = pivot(bv, Vector3(0, -0.52, 0))
-	box(lever_ind, 0.025, 0.025, 0.24, m["steel"], 0, 0, -0.12)
-	var pk := cyl(lever_ind, 0.022, 0.022, 0.1, m["knob_pink"], Vector3(0, 0, -0.25), 10)
-	pk.rotation.x = PI / 2.0
+	var li := pivot(lever_ind, Vector3.ZERO, Vector3(0, PI / 2.0, 0))
+	_lever_shaft(li, 0.24, false, m["knob_pink"], 0.02, "grip")
 	box(p, 0.4, 0.55, 0.3, m["steel_dark"], 1.15, floor_y + 0.28, 0.35)            # cab heater
 	# PTC display retrofitted onto the front wall
 	var pm := pivot(p, Vector3(1.12, sill_y - 0.2, 0.12), Vector3(-0.15, -0.35, 0))
@@ -836,6 +879,95 @@ func _interior_classic(p: Node, nose_forward: bool) -> void:
 	_bottle(p, Vector3(-1.2, -0.6, 1.05))
 	_seat(p, 0.8, floor_y, 1.3, m["seat"])
 	_seat(p, -0.8, floor_y, 1.4, m["seat"])
+	_mirrors(p, w / 2.0, -0.05)
+
+## Throttle notch quadrant: a curved plate with 9 detents, mounted on a stand face (+x).
+func _notch_plate(p: Node, pos: Vector3) -> void:
+	box(p, 0.012, 0.06, 0.26, m["cast"], pos.x, pos.y, pos.z - 0.02)
+	for i in 9:
+		var a := float(i) / 8.0 * 0.9
+		box(p, 0.02, 0.018, 0.008, m["chrome"], pos.x + 0.012 + cos(a) * 0.0, pos.y + 0.035, pos.z - sin(a) * 0.12 + 0.02)
+
+# ---------------------------------------------------------------- EMD wide cab with an AAR control stand (SD70ACe)
+func _interior_aar(p: Node) -> void:
+	var w := 3.16
+	var floor_y := -1.35
+	var sill_y := -0.42
+	var top_y := 0.45
+	tone = "tan"
+	_shell(p, w, 2.8, floor_y, 0.68, sill_y, top_y, [-0.76, 0.76], 1.36, m["wall_tan"], false)
+	var brown: Material = m["stand_brown"]
+	# AAR stand ahead-left of the engineer, controls on its right (+x) face
+	var st := pivot(p, Vector3(0.3, 0, 0.78))
+	var top := -0.36
+	box(st, 0.4, top - floor_y, 0.62, brown, 0, (top + floor_y) / 2.0, 0)
+	box(st, 0.42, 0.03, 0.64, m["cast"], 0, top + 0.015, 0)
+	# gauge housing on top, angled toward the engineer
+	var gh := pivot(st, Vector3(0.05, top + 0.12, -0.18), Vector3(-0.35, 0.55, 0))
+	box(gh, 0.5, 0.2, 0.1, brown, 0, 0, -0.03)
+	gauge(gh, "g_speed", 0.062, Vector3(-0.16, 0, 0.025), ["speed"], [Color(1, 1, 1)])
+	gauge(gh, "g_er", 0.062, Vector3(0, 0, 0.025), ["bp", "er"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	gauge(gh, "g_mr", 0.062, Vector3(0.16, 0, 0.025), ["mr", "bc"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	# red radio + keypad box on top of the stand (like the SD60E/SD70 photos)
+	var rr := pivot(st, Vector3(-0.08, top + 0.06, 0.2), Vector3(0, 0.5, 0))
+	box(rr, 0.22, 0.09, 0.15, m["radio_red"], 0, 0, 0)
+	box(rr, 0.09, 0.03, 0.005, m["lcd"], -0.04, 0.02, 0.076)
+	for i in 4:
+		box(rr, 0.018, 0.014, 0.01, m["black"], 0.04 + (i % 2) * 0.026, 0.02 - (i / 2) * 0.022, 0.075)
+	# throttle / dynamic brake / reverser on the right face
+	var fx := 0.2
+	_notch_plate(st, Vector3(fx - 0.005, -0.5, -0.05))
+	lever_thr = pivot(st, Vector3(fx, -0.5, -0.05))
+	_lever_shaft(lever_thr, 0.17, false, m["grip"], 0.02, "grip")
+	lever_db = pivot(st, Vector3(fx, -0.42, 0.12))
+	_lever_shaft(lever_db, 0.14, false, m["grip"], 0.022)
+	var rv := pivot(st, Vector3(fx, -0.62, -0.2))
+	_lever_shaft(rv, 0.09, false, m["black"], 0.018)
+	quad(st, 0.34, 0.18, m["switches"], Vector3(fx + 0.002, -0.85, 0.0), Vector3(0, PI / 2.0, 0))
+	quad(st, 0.14, 0.07, m["hv"], Vector3(fx + 0.002, -1.05, 0.15), Vector3(0, PI / 2.0, 0))
+	# CCB brake valves on a shelf on the right face, below the throttle
+	var shelf := pivot(st, Vector3(fx + 0.1, -0.7, 0.0))
+	box(shelf, 0.2, 0.04, 0.5, m["cast"], 0, -0.02, 0)
+	_brake_valve(shelf, Vector3(0, 0.07, -0.1))
+	lever_auto = pivot(shelf, Vector3(0, 0.11, -0.1))
+	_lever_shaft(lever_auto, 0.2, false, m["knob_red"], 0.028)
+	_brake_valve(shelf, Vector3(0, 0.07, 0.15))
+	lever_ind = pivot(shelf, Vector3(0, 0.11, 0.15))
+	_lever_shaft(lever_ind, 0.16, false, m["chrome"], 0.024)
+	# alerter + bell/sand buttons
+	var al := cyl(st, 0.03, 0.03, 0.03, m["alerter"], Vector3(fx + 0.01, -0.32, 0.25), 14)
+	al.rotation.z = PI / 2.0
+	_pickable(st, Vector3(fx + 0.01, -0.32, 0.25), 0.07, "alerter")
+	_handset(st, Vector3(0, -0.6, 0.33), Vector3.ZERO, 0.35)
+	# engineer's front desk with two displays (PTC + engine)
+	var desk_y := -0.6
+	box(p, 1.0, desk_y - floor_y, 0.5, brown, 1.0, (desk_y + floor_y) / 2.0, 0.3)
+	box(p, 1.04, 0.04, 0.54, m["console"], 1.0, desk_y + 0.02, 0.3)
+	var dp := pivot(p, Vector3(1.0, desk_y + 0.2, 0.12), Vector3(-0.35, 0, 0))
+	box(dp, 0.94, 0.34, 0.1, brown, 0, 0, -0.03)
+	screen(dp, 0.32, 0.24, Vector3(-0.2, 0.01, 0.03), Vector3.ZERO, "eng")
+	screen(dp, 0.32, 0.24, Vector3(0.21, 0.01, 0.03), Vector3.ZERO, "ptc")
+	quad(dp, 0.3, 0.036, m["fkeys"], Vector3(-0.2, -0.15, 0.025), Vector3.ZERO)
+	quad(dp, 0.3, 0.036, m["fkeys"], Vector3(0.21, -0.15, 0.025), Vector3.ZERO)
+	_bottle(p, Vector3(1.35, desk_y + 0.04, 0.45))
+	quad(p, 0.22, 0.3, m["paper"], Vector3(0.8, desk_y + 0.045, 0.42), Vector3(-PI / 2.0, -0.2, 0))   # track warrant
+	_radio(p, Vector3(1.47, 0.05, 1.8), Vector3(0, -PI / 2.0, 0))
+	quad(p, 0.24, 0.12, m["cabsig"], Vector3(1.52, -0.75, 1.9), Vector3(0, -PI / 2.0, 0))
+	# conductor's desk
+	box(p, 1.1, -0.66 - floor_y, 0.6, brown, -0.92, (-0.66 + floor_y) / 2.0, 0.36)
+	box(p, 1.14, 0.04, 0.64, m["console"], -0.92, -0.64, 0.36)
+	var cp := pivot(p, Vector3(-0.92, -0.46, 0.14), Vector3(-0.3, 0, 0))
+	box(cp, 0.9, 0.34, 0.12, brown, 0, 0, -0.04)
+	screen(cp, 0.3, 0.22, Vector3(-0.2, 0.0, 0.03), Vector3.ZERO, "ptc")
+	quad(cp, 0.28, 0.035, m["fkeys"], Vector3(-0.2, -0.145, 0.025), Vector3.ZERO)
+	quad(p, 0.22, 0.3, m["paper"], Vector3(-0.85, -0.615, 0.5), Vector3(-PI / 2.0, 0.15, 0))
+	_handset(p, Vector3(-1.5, -0.6, 1.45), Vector3(0, PI / 2.0, 0), 0.3)
+	quad(p, 0.24, 0.12, m["ebv"], Vector3(-1.53, -0.75, 0.75), Vector3(0, PI / 2.0, 0))
+	box(p, 0.12, 0.16, 0.1, m["red"], -1.47, -0.95, 0.75)
+	_extinguisher(p, Vector3(1.25, floor_y, 2.6))
+	_seat(p, 0.86, floor_y, 1.3, m["seat"])
+	_seat(p, -0.86, floor_y, 1.25, m["seat"])
+	_seat(p, -0.86, floor_y, 2.15, m["seat"])
 	_mirrors(p, w / 2.0, -0.05)
 
 func _pickable(p: Node, pos: Vector3, r: float, action: String) -> void:
@@ -865,7 +997,7 @@ func update(s: Dictionary) -> void:
 	var auto_h: float = s["auto_h"]
 	var ind_h: float = s["ind_h"]
 	var em: bool = s["emergency"]
-	if model.begins_with("classic"):
+	if model != "modern":
 		if lever_thr:
 			lever_thr.rotation.y = float(maxi(lever, 0)) / 8.0 * 0.9
 		if lever_db:
@@ -890,7 +1022,7 @@ func update(s: Dictionary) -> void:
 		return
 	var mph: int = s["mph"]
 	if ui.has("e_speed"):
-		ui["e_title"].text = ("LOCO 2271   " if model.begins_with("classic") else "LOCO 8062   ") + str(s["model"])
+		ui["e_title"].text = ("LOCO 2236   " if model.begins_with("classic") else "LOCO 4417   ") + str(s["model"])
 		ui["e_speed"].text = str(mph)
 		ui["e_lever"].text = s["lever_name"]
 		ui["e_te"].text = "%d kN" % int(s["te_kn"])
