@@ -1343,8 +1343,14 @@ func _build_crossing(node: Node3D, dc: float, srng: RandomNumberGenerator) -> vo
 		# a car waiting at the crossing
 		var car_mat := art.mat(Color(srng.randf(), srng.randf(), srng.randf()), 0.3, 0.4)
 		var cx := s * srng.randf_range(11.0, 16.0)
-		art.box(node, Vector3(4.4, 0.8, 1.9), Vector3(cx, 0.1, -dc - s * 2.0), car_mat)
-		art.box(node, Vector3(2.4, 0.65, 1.75), Vector3(cx + s * 0.3, 0.8, -dc - s * 2.0), art.mats["black"])
+		# car sitting on its wheels on the road surface (road top is at -0.39)
+		var cz := -dc - s * 2.0
+		art.box(node, Vector3(4.4, 0.75, 1.85), Vector3(cx, -0.39 + 0.3 + 0.375, cz), car_mat)
+		art.box(node, Vector3(2.3, 0.6, 1.7), Vector3(cx + s * 0.25, -0.39 + 0.3 + 0.75 + 0.3, cz), art.mats["black"])
+		for wx in [-1.4, 1.4]:
+			for wz in [-0.8, 0.8]:
+				var wh := art.cyl(node, 0.33, 0.33, 0.22, Vector3(cx + wx, -0.39 + 0.33, cz + wz), art.mats["black"], 12)
+				wh.rotation.x = PI / 2.0
 	# whistle post ahead of the crossing
 	art.box(node, Vector3(0.08, 2.2, 0.08), Vector3(3.2, 0.7, -(dc - 400.0)), art.mats["white"])
 	var w := Label3D.new()

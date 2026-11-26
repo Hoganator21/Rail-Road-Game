@@ -86,13 +86,13 @@ func update(delta: float, s: Dictionary) -> void:
 	_lp("engine", 0.55 + 0.25 * eng_load, eng_pitch)
 	_lp("engine_load", 0.05 + 0.55 * eng_load * eng_load, eng_pitch)
 	var spool := clampf((rpm - 450.0) / 600.0, 0.0, 1.0)
-	_lp("turbo", 0.02 + 0.22 * spool * (0.4 + 0.6 * eng_load), 0.55 + 0.75 * spool)
+	_lp("turbo", 0.006 + 0.05 * spool * (0.4 + 0.6 * eng_load), 0.45 + 0.35 * spool)
 	# ---- wheels on rail
 	var sp := clampf(v / 25.0, 0.0, 1.5)
 	_lp("rumble", 0.75 * sp, 0.55 + 0.6 * clampf(v / 30.0, 0.0, 1.2))
 	# ---- dynamic brake grid blowers
 	var dyn: float = s["dyn"]
-	_lp("dyn_fan", 0.5 * dyn, 0.7 + 0.55 * dyn)
+	_lp("dyn_fan", 0.22 * dyn, 0.6 + 0.25 * dyn)
 	# ---- air: brake valve exhaust while brake pipe pressure is dropping, softer hiss while recharging
 	var bp: float = s["bp"]
 	var dbp := (bp - prev_bp) / delta
