@@ -7,15 +7,15 @@ extends Node3D
 # ---------------------------------------------------------------- constants
 const G := 0.7175            # half track gauge (m)
 const RW := 0.075            # rail width
-const RH := 0.16             # rail height
-const RAIL_Y := 0.35         # rail base height (top of ties)
-const TOP_Y := 0.51          # top of rail
+const RH := 0.185            # rail height
+const RAIL_Y := 0.195        # rail base height (top of tie plates)
+const TOP_Y := 0.38          # top of rail
 const OFF := 4.6             # siding / spur track-centre offset
 const TL := 70.0             # turnout length (lateral transition)
 const POINT_LEN := 7.0       # length of the movable point rails
 const THROW := 0.13          # how far an open point stands off its stock rail
 const CHUNK := 250.0
-const EYE_H := 3.4           # engineer eye height above top of rail
+const EYE_H := 3.75          # engineer eye height above top of rail
 const DIV_LIMIT_MPH := 25.0
 const MPH := 2.23694
 const CAR_LEN := 16.0
@@ -42,6 +42,7 @@ class Switch:
 
 class TrackEvent:
 	var kind: String = "siding"   # siding | spur_facing | spur_trailing
+	var industry: Array = []
 	var side: int = 1
 	var d_in: float = 0.0
 	var d_out: float = 0.0
@@ -97,6 +98,8 @@ var cab: Node3D
 var pivot: Node3D
 var cam: Camera3D
 var ground: MeshInstance3D
+var far_ring: MultiMeshInstance3D
+var art = preload("res://scripts/art.gd").new()
 var hud
 var mats: Dictionary = {}
 var meshes: Dictionary = {}
@@ -123,8 +126,9 @@ func _ready() -> void:
 		elif a.begins_with("--zoom-times="):
 			for t in a.substr(13).split(","):
 				zoom_times.append(float(t))
+	art.setup()
 	_make_materials()
-	_make_environment()
+	art.make_environment(self)
 	_make_ground()
 	_make_cab()
 	_load_best()
@@ -155,7 +159,7 @@ func _make_materials() -> void:
 	mats["pole"] = _mat(Color(0.33, 0.25, 0.17))
 	mats["white"] = _mat(Color(0.92, 0.92, 0.9))
 	mats["dark"] = _mat(Color(0.08, 0.08, 0.09))
-	mats["loco"] = _mat(Color(0.06, 0.08, 0.14), 0.7, 0.1)
+	mats["loco"] = _mat(Color(0.05, 0.07, 0.12), 0.85, 0.0)
 	mats["yellow"] = _mat(Color(0.95, 0.75, 0.1))
 	mats["road"] = _mat(Color(0.19, 0.19, 0.2), 1.0)
 	mats["building"] = _mat(Color(0.62, 0.55, 0.45))
@@ -225,36 +229,16 @@ func _make_environment() -> void:
 	add_child(sun)
 
 func _make_ground() -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(3200, 3200)
-	ground = MeshInstance3D.new()
-	ground.mesh = plane
-	var m := StandardMaterial3D.new()
-	var nt := NoiseTexture2D.new()
-	nt.width = 256
-	nt.height = 256
-	nt.seamless = true
-	var fn := FastNoiseLite.new()
-	fn.frequency = 0.03
-	nt.noise = fn
-	var grad := Gradient.new()
-	grad.set_color(0, Color(0.16, 0.22, 0.08))
-	grad.set_color(1, Color(0.3, 0.34, 0.15))
-	nt.color_ramp = grad
-	m.albedo_texture = nt
-	m.uv1_triplanar = true
-	m.uv1_world_triplanar = true
-	m.uv1_scale = Vector3(0.025, 0.025, 0.025)
-	m.roughness = 1.0
-	ground.material_override = m
-	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ground = art.far_ground()
 	add_child(ground)
+	far_ring = art.far_tree_ring()
+	add_child(far_ring)
 
 func _make_cab() -> void:
 	cab = Node3D.new()
 	add_child(cab)
 	pivot = Node3D.new()
-	pivot.position = Vector3(0.55, EYE_H, 0.0)
+	pivot.position = Vector3(0.85, EYE_H, 0.0)
 	cab.add_child(pivot)
 	cam = Camera3D.new()
 	cam.fov = 70.0
@@ -268,8 +252,8 @@ func _make_cab() -> void:
 	_cab_box(Vector3(0.04, 0.04, 4.0), Vector3(1.25, hood_top + 0.35, -3.1), mats["yellow"])     # handrails
 	_cab_box(Vector3(0.04, 0.04, 4.0), Vector3(-1.25, hood_top + 0.35, -3.1), mats["yellow"])
 	_cab_box(Vector3(0.05, 1.6, 0.06), Vector3(-0.05, EYE_H, -0.95), mats["loco"])                 # windshield posts
-	_cab_box(Vector3(0.18, 1.6, 0.12), Vector3(1.5, EYE_H, -0.75), mats["loco"])
-	_cab_box(Vector3(0.18, 1.6, 0.12), Vector3(-1.5, EYE_H, -0.75), mats["loco"])
+	_cab_box(Vector3(0.1, 1.6, 0.1), Vector3(1.55, EYE_H, -0.85), mats["loco"])
+	_cab_box(Vector3(0.1, 1.6, 0.1), Vector3(-1.55, EYE_H, -0.85), mats["loco"])
 	_cab_box(Vector3(3.2, 0.3, 0.4), Vector3(0.0, EYE_H + 0.85, -0.75), mats["loco"])          # roof edge
 	_cab_box(Vector3(3.2, 0.9, 0.6), Vector3(0.0, EYE_H - 1.05, -0.6), mats["dark"])             # sill / dash
 	_cab_box(Vector3(0.1, 2.4, 3.0), Vector3(1.55, EYE_H - 0.3, 0.9), mats["loco"])            # side walls
@@ -758,7 +742,8 @@ func _place_cab(delta: float) -> void:
 	var sway := sin(time_s * 1.7) * 0.004 * clampf(speed / 20.0, 0.0, 1.0)
 	cab.position = Vector3(x, TOP_Y + absf(sin(time_s * 9.0)) * 0.006 * clampf(speed / 25.0, 0.0, 1.0), -cd)
 	cab.rotation = Vector3(0.0, -atan(slope), sway)
-	ground.position = Vector3(0.0, 0.0, -front_d)
+	ground.position = Vector3(0.0, -3.0, -front_d)
+	far_ring.position = Vector3(0.0, 0.0, -front_d)
 
 func _update_camera(delta: float) -> void:
 	var tfov := zoom_fov if zoomed else 70.0
@@ -891,62 +876,48 @@ func _build_event_visuals(ev) -> void:
 		add_child(disc)
 		ev.nodes.append(disc)
 		_update_switch_visual(sw)
-	var palette := [Color(0.42, 0.2, 0.12), Color(0.1, 0.1, 0.11), Color(0.5, 0.5, 0.48), Color(0.15, 0.3, 0.2), Color(0.2, 0.28, 0.45), Color(0.55, 0.4, 0.15)]
+	if ev.kind != "siding":
+		ev.industry = art.INDUSTRIES[rng.randi() % art.INDUSTRIES.size()]
 	if ev.kind == "spur_facing":
+		var ck: String = ev.industry[2]
 		var d0: float = ev.car_d
-		while d0 + CAR_LEN <= ev.end - 7.9:
-			_make_car(ev, d0 + 0.6, d0 + CAR_LEN - 0.6, palette[rng.randi() % palette.size()])
-			d0 += CAR_LEN
-		_make_bumper(ev, ev.end)
-		_make_building(ev, (ev.d_in + TL + ev.end) * 0.5, minf(70.0, ev.end - ev.d_in - TL))
+		var first := true
+		while d0 + art.CAR_LEN[ck] <= ev.end - 6.0:
+			_make_car(ev, d0, d0 + art.CAR_LEN[ck], ck, first)
+			first = false
+			d0 += art.CAR_LEN[ck]
+		_make_bumper(ev, ev.end - 1.5)
+		_make_building(ev, (ev.d_in + TL + ev.end) * 0.5, ev.end - ev.d_in - TL)
 	elif ev.kind == "spur_trailing":
+		var ck2: String = ev.industry[2]
 		var n := rng.randi_range(1, 3)
 		for i in n:
-			var a: float = ev.start + 8.0 + i * CAR_LEN
-			_make_car(ev, a + 0.6, a + CAR_LEN - 0.6, palette[rng.randi() % palette.size()])
-		_make_bumper(ev, ev.start)
-		_make_building(ev, (ev.start + ev.d_out - TL) * 0.5, minf(70.0, ev.d_out - TL - ev.start))
+			var a2: float = ev.start + 6.0 + i * art.CAR_LEN[ck2]
+			_make_car(ev, a2, a2 + art.CAR_LEN[ck2], ck2, i == 0)
+		_make_bumper(ev, ev.start + 1.5)
+		_make_building(ev, (ev.start + ev.d_out - TL) * 0.5, ev.d_out - TL - ev.start)
 
-func _make_car(ev, a: float, b: float, col: Color) -> void:
+func _make_car(ev, a: float, b: float, kind: String, detailed: bool) -> void:
 	var mid := (a + b) * 0.5
-	var x := div_x(ev, mid)
-	var kind := rng.randi() % 3
-	var body_mat := _mat(col, 0.8)
-	if kind == 0:     # boxcar
-		ev.nodes.append(_box(self, Vector3(3.0, 3.5, b - a), Vector3(x, TOP_Y + 1.0 + 1.75, -mid), body_mat))
-	elif kind == 1:   # covered hopper / tank-ish
-		var cyl := MeshInstance3D.new()
-		var cm := CylinderMesh.new()
-		cm.top_radius = 1.45
-		cm.bottom_radius = 1.45
-		cm.height = b - a - 0.6
-		cyl.mesh = cm
-		cyl.rotation.x = PI / 2.0
-		cyl.position = Vector3(x, TOP_Y + 2.6, -mid)
-		cyl.material_override = body_mat
-		add_child(cyl)
-		ev.nodes.append(cyl)
-		ev.nodes.append(_box(self, Vector3(2.8, 0.4, b - a), Vector3(x, TOP_Y + 1.2, -mid), mats["dark"]))
-	else:             # gondola
-		ev.nodes.append(_box(self, Vector3(3.0, 1.6, b - a), Vector3(x, TOP_Y + 1.0 + 0.8, -mid), body_mat))
-	for td in [a + 2.4, b - 2.4]:
-		ev.nodes.append(_box(self, Vector3(2.5, 0.8, 2.6), Vector3(div_x(ev, td), TOP_Y + 0.45, -td), mats["dark"]))
-	for cd in [a - 0.3, b + 0.3]:
-		ev.nodes.append(_box(self, Vector3(0.3, 0.3, 0.6), Vector3(div_x(ev, cd), TOP_Y + 0.85, -cd), mats["dark"]))
+	var cols: Array = art.CAR_COLORS[kind]
+	var car: Node3D = art.freight_car(kind, cols[rng.randi() % cols.size()], detailed)
+	var slope := div_x(ev, mid + 1.0) - div_x(ev, mid - 1.0)
+	car.position = Vector3(div_x(ev, mid), 0.0, -mid)
+	car.rotation.y = -atan(slope * 0.5)
+	add_child(car)
+	ev.nodes.append(car)
 
 func _make_bumper(ev, d: float) -> void:
-	var x := div_x(ev, d)
-	ev.nodes.append(_box(self, Vector3(2.6, 1.1, 0.8), Vector3(x, TOP_Y + 0.3, -d), mats["yellow"]))
-	ev.nodes.append(_box(self, Vector3(0.6, 0.6, 0.06), Vector3(x, TOP_Y + 0.6, -d + 0.43), mats["redlamp"]))
+	art.bumper(self, div_x(ev, d), d, 1.0 if ev.kind == "spur_facing" else -1.0)
+	ev.nodes.append(get_child(get_child_count() - 1))
 
 func _make_building(ev, mid: float, length: float) -> void:
 	if length < 20.0:
 		return
-	var x: float = ev.side * (OFF + 13.0)
-	var h := rng.randf_range(6.0, 10.0)
-	ev.nodes.append(_box(self, Vector3(14.0, h, length), Vector3(x, h * 0.5, -mid), mats["building"]))
-	ev.nodes.append(_box(self, Vector3(15.0, 0.4, length + 1.0), Vector3(x, h + 0.2, -mid), mats["roof"]))
-	ev.nodes.append(_box(self, Vector3(3.0, 1.2, length), Vector3(ev.side * (OFF + 4.6), 0.6 + 0.4, -mid), mats["roof"]))  # loading dock
+	var before := get_child_count()
+	art.industry(self, ev.industry[1], float(ev.side), OFF, mid, length * 0.8)
+	for i in range(before, get_child_count()):
+		ev.nodes.append(get_child(i))
 
 func _update_switch_visual(sw) -> void:
 	var tip: float = sw.d
@@ -962,14 +933,11 @@ func _update_switch_visual(sw) -> void:
 	sw.target_mat.emission = c * 0.7
 
 func _place_point(mi: MeshInstance3D, a: Vector2, b: Vector2) -> void:
-	var v := Vector3(b.x - a.x, 0.0, -(b.y - a.y))
-	var bm := BoxMesh.new()
-	bm.size = Vector3(RW, RH, v.length())
-	mi.mesh = bm
-	mi.position = Vector3((a.x + b.x) * 0.5, RAIL_Y + RH * 0.5 + 0.002, -(a.y + b.y) * 0.5)
-	mi.rotation = Vector3(0.0, atan2(v.x, v.z), 0.0)
+	mi.mesh = art.point_rail_mesh(a, b)
+	mi.material_override = art.mats["rail"]
+	mi.position = Vector3.ZERO
+	mi.rotation = Vector3.ZERO
 
-# ---------------------------------------------------------------- chunk meshes
 func _quad(st: SurfaceTool, p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, n: Vector3) -> void:
 	st.set_normal(n)
 	st.add_vertex(p0)
@@ -1032,19 +1000,30 @@ func _point_gap(sw) -> Array:
 	var heel: float = sw.d + POINT_LEN if sw.facing else sw.d - POINT_LEN
 	return [minf(sw.d, heel), maxf(sw.d, heel)]
 
+func _line(ev, offset: float, a: float, b: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	if ev == null:
+		pts.append(Vector2(offset, a))
+		pts.append(Vector2(offset, b))
+		return pts
+	var n := maxi(1, int(ceil((b - a) / 2.0)))
+	for k in n + 1:
+		var d := lerpf(a, b, float(k) / n)
+		pts.append(Vector2(div_x(ev, d) + offset, d))
+	return pts
+
 func _build_chunk(i: int) -> void:
 	var c0 := i * CHUNK
 	var c1 := c0 + CHUNK
 	var node := Node3D.new()
 	add_child(node)
 	chunks[i] = node
-	var body := SurfaceTool.new()
-	body.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var top := SurfaceTool.new()
-	top.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rails := SurfaceTool.new()
+	rails.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var bal := SurfaceTool.new()
 	bal.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var ties: Array = []
+	var plates: Array = []
 	var overlapping: Array = []
 	for ev in events:
 		if ev.end > c0 - 5.0 and ev.start < c1 + 5.0:
@@ -1057,12 +1036,15 @@ func _build_chunk(i: int) -> void:
 				if sw.side == rs:
 					gaps.append(_point_gap(sw))
 		for iv in _subtract(c0, c1, gaps):
-			_rail_strip(body, top, _sample(null, rs * G, iv[0], iv[1], RAIL_Y))
-	_ballast_strip(bal, _sample(null, 0.0, c0, c1, 0.0), 0.25)
-	var d := ceilf(c0 / 0.6) * 0.6
+			art.rail_line(rails, _line(null, rs * G, iv[0], iv[1]))
+	art.ballast_line(bal, _line(null, 0.0, c0, c1))
+	var tsp: float = art.TIE_SP
+	var d: float = ceilf(c0 / tsp) * tsp
 	while d < c1:
-		ties.append(Transform3D(Basis(), Vector3(0.0, RAIL_Y - 0.08, -d)))
-		d += 0.6
+		ties.append([Vector3(0.0, 0.0, -d), 0.0, 2.6])
+		plates.append([Vector3(-G, 0.0, -d), 0.0])
+		plates.append([Vector3(G, 0.0, -d), 0.0])
+		d += tsp
 	# ---- diverging tracks
 	for ev in overlapping:
 		var a := maxf(c0, ev.start)
@@ -1070,108 +1052,59 @@ func _build_chunk(i: int) -> void:
 		if b <= a:
 			continue
 		var s: int = ev.side
-		_ballast_strip(bal, _sample(ev, 0.0, a, b, 0.0), 0.245)
+		art.ballast_line(bal, _line(ev, 0.0, a, b), -0.004)
 		for rs in [-1, 1]:
 			var gaps2: Array = []
 			if rs == -s:
 				for sw in ev.switches:
 					gaps2.append(_point_gap(sw))
 			for iv in _subtract(a, b, gaps2):
-				_rail_strip(body, top, _sample(ev, rs * G, iv[0], iv[1], RAIL_Y))
-		var dd := ceilf(a / 0.6) * 0.6
+				art.rail_line(rails, _line(ev, rs * G, iv[0], iv[1]))
+		var dd: float = ceilf(a / tsp) * tsp
 		while dd < b:
 			var x := div_x(ev, dd)
-			if absf(x) > 2.0:
-				var slope := (div_x(ev, dd + 0.5) - div_x(ev, dd - 0.5))
-				ties.append(Transform3D(Basis(Vector3.UP, -atan(slope)), Vector3(x, RAIL_Y - 0.081, -dd)))
-			dd += 0.6
-	var mesh := body.commit()
-	top.commit(mesh)
-	mesh.surface_set_material(0, mats["rail"])
-	mesh.surface_set_material(1, mats["railtop"])
+			var rot := -atan((div_x(ev, dd + 0.5) - div_x(ev, dd - 0.5)))
+			if absf(x) > 2.2:
+				ties.append([Vector3(x, 0.0, -dd), rot, 2.6])
+				plates.append([Vector3(x - G, 0.0, -dd), rot])
+				plates.append([Vector3(x + G, 0.0, -dd), rot])
+			elif absf(x) > 0.05:
+				# long switch timbers under the turnout
+				ties.append([Vector3(x * 0.5, 0.0, -dd), 0.0, 2.6 + absf(x)])
+			dd += tsp
 	var rail_mi := MeshInstance3D.new()
-	rail_mi.mesh = mesh
-	rail_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	rail_mi.mesh = rails.commit()
+	rail_mi.material_override = art.mats["rail"]
 	node.add_child(rail_mi)
 	var bal_mi := MeshInstance3D.new()
 	bal_mi.mesh = bal.commit()
-	bal_mi.material_override = mats["ballast"]
+	bal_mi.material_override = art.mats["ballast"]
 	bal_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(bal_mi)
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = meshes["tie"]
-	mm.instance_count = ties.size()
-	for t in ties.size():
-		mm.set_instance_transform(t, ties[t])
-	var tie_mi := MultiMeshInstance3D.new()
-	tie_mi.multimesh = mm
-	tie_mi.material_override = mats["tie"]
-	tie_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	node.add_child(tie_mi)
+	node.add_child(art.tie_multimesh(ties))
+	node.add_child(art.plate_multimesh(plates))
+	node.add_child(art.ground_strip(c0, c1))
 	_build_scenery(node, i, c0, c1, overlapping)
 
 func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Array) -> void:
 	var srng := RandomNumberGenerator.new()
 	srng.seed = hash(i * 7919 + 13)
-	var busy := {1: false, -1: false}
-	for ev in overlapping:
-		busy[ev.side] = true
-	# ---- trees
-	var cones: Array = []
-	var balls: Array = []
-	for t in 70:
-		var side := 1 if srng.randf() < 0.5 else -1
-		var minx := 34.0 if busy[side] else 13.0
-		var x := side * srng.randf_range(minx, 170.0)
-		var dz := srng.randf_range(c0, c1)
-		var sc := srng.randf_range(0.7, 1.5)
-		var col := Color(srng.randf_range(0.08, 0.2), srng.randf_range(0.22, 0.4), srng.randf_range(0.08, 0.16))
-		if srng.randf() < 0.55:
-			cones.append([Transform3D(Basis().scaled(Vector3(sc, sc, sc)), Vector3(x, (2.0 + 3.5) * sc, -dz)), col, Vector3(x, 1.2 * sc, -dz), sc])
-		else:
-			balls.append([Transform3D(Basis().scaled(Vector3(sc, sc, sc)), Vector3(x, (2.0 + 2.2) * sc, -dz)), col, Vector3(x, 1.2 * sc, -dz), sc])
-	var trunks: Array = []
-	for group in [[cones, "cone"], [balls, "ball"]]:
-		var arr: Array = group[0]
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.use_colors = true
-		mm.mesh = meshes[group[1]]
-		mm.instance_count = arr.size()
-		for j in arr.size():
-			mm.set_instance_transform(j, arr[j][0])
-			mm.set_instance_color(j, arr[j][1])
-			trunks.append([arr[j][2], arr[j][3]])
-		var mmi := MultiMeshInstance3D.new()
-		mmi.multimesh = mm
-		mmi.material_override = mats["veg"]
-		node.add_child(mmi)
-	var tm := MultiMesh.new()
-	tm.transform_format = MultiMesh.TRANSFORM_3D
-	tm.use_colors = true
-	tm.mesh = meshes["trunk"]
-	tm.instance_count = trunks.size()
-	for j in trunks.size():
-		var sc2: float = trunks[j][1]
-		tm.set_instance_transform(j, Transform3D(Basis().scaled(Vector3(sc2, sc2, sc2)), trunks[j][0]))
-		tm.set_instance_color(j, Color(0.3, 0.2, 0.12))
-	var tmi := MultiMeshInstance3D.new()
-	tmi.multimesh = tm
-	tmi.material_override = mats["veg"]
-	node.add_child(tmi)
-	# ---- pole line
-	var pd := ceilf(c0 / 50.0) * 50.0
-	while pd < c1:
-		var pole := MeshInstance3D.new()
-		pole.mesh = meshes["pole"]
-		pole.material_override = mats["pole"]
-		pole.position = Vector3(-9.5, 4.5, -pd)
-		node.add_child(pole)
-		_box(node, Vector3(1.8, 0.12, 0.12), Vector3(-9.5, 8.6, -pd), mats["pole"])
-		pd += 50.0
-	for wx in [-10.2, -8.8]:
-		_box(node, Vector3(0.025, 0.025, CHUNK), Vector3(wx, 8.72, -(c0 + c1) * 0.5), mats["wire"])
+	var crossing_d := -1.0
+	if i >= 2 and overlapping.is_empty() and srng.randf() < 0.35:
+		crossing_d = c0 + CHUNK * 0.5
+	var blocked := func(x: float, d: float) -> bool:
+		if absf(x) < 9.5:
+			return true
+		if absf(x + 9.5) < 2.5:
+			return true
+		if crossing_d > 0.0 and absf(d - crossing_d) < 16.0:
+			return true
+		for ev in overlapping:
+			if d > ev.start - 25.0 and d < ev.end + 25.0 and signf(x) == ev.side and absf(x) < OFF + 32.0:
+				return true
+		return false
+	art.foliage(node, c0, c1, blocked, 1.0, srng)
+	art.pole_line(node, c0, c1, -9.5, func(pd: float) -> bool: return crossing_d > 0.0 and absf(pd - crossing_d) < 8.0)
 	# ---- mileposts
 	var m := int(ceil(c0 / 1609.34))
 	while m * 1609.34 < c1:
@@ -1181,51 +1114,59 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 			if md > ev.start - 20.0 and md < ev.end + 20.0 and ev.side == 1:
 				clear = false
 		if clear and m > 0:
-			_box(node, Vector3(0.15, 1.6, 0.15), Vector3(3.3, 0.8, -md), mats["white"])
+			art.box(node, Vector3(0.08, 2.0, 0.08), Vector3(3.2, 0.6, -md), art.mats["white"])
 			var lbl := Label3D.new()
 			lbl.text = str(m)
 			lbl.font_size = 96
-			lbl.pixel_size = 0.004
+			lbl.pixel_size = 0.0035
 			lbl.modulate = Color(0.05, 0.05, 0.05)
 			lbl.outline_size = 0
-			lbl.position = Vector3(3.3, 1.3, -md + 0.09)
+			lbl.position = Vector3(3.2, 1.45, -md + 0.05)
+			var plate := art.box(node, Vector3(0.6, 0.3, 0.03), Vector3(3.2, 1.45, -md + 0.02), art.mats["white"])
+			plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			node.add_child(lbl)
 		m += 1
-	# ---- road crossing (only where there's no track work)
-	if i >= 2 and overlapping.is_empty() and srng.randf() < 0.35:
-		_build_crossing(node, c0 + CHUNK * 0.5, srng)
+	if crossing_d > 0.0:
+		_build_crossing(node, crossing_d, srng)
 
 func _build_crossing(node: Node3D, dc: float, srng: RandomNumberGenerator) -> void:
-	_box(node, Vector3(400.0, 0.06, 8.0), Vector3(0.0, 0.03, -dc), mats["road"])
-	_box(node, Vector3(5.2, 0.12, 8.0), Vector3(0.0, 0.33, -dc), mats["road"])
-	for i in 2:
-		var s := 1.0 if i == 0 else -1.0
-		var px := s * 4.8
-		var pz := -dc + s * 5.5
-		_box(node, Vector3(0.14, 3.6, 0.14), Vector3(px, 1.8, pz), mats["white"])
-		var xb1 := _box(node, Vector3(1.4, 0.24, 0.04), Vector3(px, 3.3, pz), mats["white"])
+	var road := art.road_strip(0.0, -220.0, 220.0, 8.0)
+	road.rotation.y = PI / 2.0
+	road.position = Vector3(0.0, -0.39, -dc)
+	node.add_child(road)
+	art.box(node, Vector3(5.0, 0.2, 8.0), Vector3(0.0, 0.2, -dc), art.mats["road"], false)
+	for k in 2:
+		var s := 1.0 if k == 0 else -1.0
+		var px := s * 4.6
+		var pz := -dc + s * 5.4
+		art.box(node, Vector3(0.12, 4.2, 0.12), Vector3(px, 1.65, pz), art.mats["white"])
+		var xb1 := art.box(node, Vector3(1.4, 0.22, 0.03), Vector3(px, 3.4, pz + s * 0.07), art.mats["white"])
 		xb1.rotation = Vector3(0.0, 0.0, PI / 4.0)
-		var xb2 := _box(node, Vector3(1.4, 0.24, 0.04), Vector3(px, 3.3, pz), mats["white"])
+		var xb2 := art.box(node, Vector3(1.4, 0.22, 0.03), Vector3(px, 3.4, pz + s * 0.07), art.mats["white"])
 		xb2.rotation = Vector3(0.0, 0.0, -PI / 4.0)
-		_box(node, Vector3(0.9, 0.1, 0.1), Vector3(px, 2.5, pz), mats["dark"])
-		for lx in [-0.35, 0.35]:
-			_box(node, Vector3(0.26, 0.26, 0.05), Vector3(px + lx, 2.5, pz + 0.07), mats["redlamp"])
+		art.box(node, Vector3(1.0, 0.1, 0.1), Vector3(px, 2.6, pz), art.mats["black"])
+		for lx in [-0.4, 0.4]:
+			art.box(node, Vector3(0.3, 0.3, 0.12), Vector3(px + lx, 2.6, pz + s * 0.08), art.mats["black"])
+			art.box(node, Vector3(0.22, 0.22, 0.04), Vector3(px + lx, 2.6, pz + s * 0.15), art.mats["redlamp"], false)
+		# gate arm
+		var arm := art.box(node, Vector3(0.1, 0.1, 0.1), Vector3(px, 1.2, pz), art.mats["white"])
+		arm.scale = Vector3(1, 1, 1)
 		# a car waiting at the crossing
-		var col := Color(srng.randf(), srng.randf(), srng.randf())
-		var car_mat := _mat(col, 0.4, 0.3)
+		var car_mat := art.mat(Color(srng.randf(), srng.randf(), srng.randf()), 0.3, 0.4)
 		var cx := s * srng.randf_range(11.0, 16.0)
-		_box(node, Vector3(4.4, 0.9, 1.9), Vector3(cx, 0.75, -dc - s * 2.0), car_mat)
-		_box(node, Vector3(2.4, 0.7, 1.7), Vector3(cx + s * 0.3, 1.5, -dc - s * 2.0), mats["dark"])
+		art.box(node, Vector3(4.4, 0.8, 1.9), Vector3(cx, 0.1, -dc - s * 2.0), car_mat)
+		art.box(node, Vector3(2.4, 0.65, 1.75), Vector3(cx + s * 0.3, 0.8, -dc - s * 2.0), art.mats["black"])
 	# whistle post ahead of the crossing
-	_box(node, Vector3(0.12, 1.6, 0.12), Vector3(3.3, 0.8, -(dc - 400.0)), mats["white"])
+	art.box(node, Vector3(0.08, 2.2, 0.08), Vector3(3.2, 0.7, -(dc - 400.0)), art.mats["white"])
 	var w := Label3D.new()
 	w.text = "W"
 	w.font_size = 120
-	w.pixel_size = 0.005
+	w.pixel_size = 0.004
 	w.modulate = Color(0.05, 0.05, 0.05)
 	w.outline_size = 0
-	w.position = Vector3(3.3, 1.35, -(dc - 400.0) + 0.09)
+	w.position = Vector3(3.2, 1.6, -(dc - 400.0) + 0.05)
 	node.add_child(w)
+	art.box(node, Vector3(0.5, 0.5, 0.03), Vector3(3.2, 1.6, -(dc - 400.0) + 0.02), art.mats["white"])
 
 # ================================================================ test autopilot
 func _autopilot(delta: float) -> void:
