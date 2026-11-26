@@ -125,6 +125,8 @@ var far_ring: MultiMeshInstance3D
 var art = preload("res://scripts/art.gd").new()
 var cab_builder = preload("res://scripts/cab.gd").new()
 var cab_model: Node3D
+var loco_model: String = "modern"
+var loco_override: String = ""
 var hud
 var mats: Dictionary = {}
 var meshes: Dictionary = {}
@@ -143,6 +145,8 @@ func _ready() -> void:
 			rng.seed = int(a.substr(7))
 		elif a.begins_with("--jump="):
 			jump_to = float(a.substr(7))
+		elif a.begins_with("--loco="):
+			loco_override = a.substr(7)
 		elif a.begins_with("--shots="):
 			shot_dir = a.substr(8)
 		elif a.begins_with("--shot-times="):
@@ -155,8 +159,10 @@ func _ready() -> void:
 	_make_materials()
 	art.make_environment(self)
 	_make_ground()
-	_make_cab()
 	_load_best()
+	if loco_override != "":
+		loco_model = loco_override
+	_make_cab()
 	snd = preload("res://scripts/sound.gd").new()
 	add_child(snd)
 	hud = preload("res://scripts/hud.gd").new()
@@ -273,9 +279,23 @@ func _make_cab() -> void:
 	cam.far = 3000.0
 	pivot.add_child(cam)
 	cam.current = true
-	cab_model = cab_builder.build()
-	cab_model.position = Vector3(0.0, EYE_H, -1.08)
+	_build_cab_model()
+
+func _build_cab_model() -> void:
+	if cab_model:
+		cab_model.queue_free()
+	cab_model = cab_builder.build(loco_model)
+	var e: Vector3 = cab_builder.eye
+	cab_model.position = Vector3(0.0, EYE_H, -e.z)
+	pivot.position = Vector3(e.x, EYE_H + e.y, 0.0)
 	cab.add_child(cab_model)
+
+func set_loco(kind: String) -> void:
+	if kind == loco_model:
+		return
+	loco_model = kind
+	_save_best()
+	_build_cab_model()
 
 func _cab_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	var mi := _box(cab, size, pos, mat)
@@ -588,8 +608,20 @@ func _process(delta: float) -> void:
 	_place_cab(delta)
 	_update_camera(delta)
 	var nsw = next_switch()
-	var ntxt := "" if nsw == null else "SW %d FT" % int((nsw.d - front_d) * 3.281)
-	cab_builder.update(lever, auto_h, ind_h, emergency, int(speed * MPH), line_max(), bp_psi, bc_psi, ntxt)
+	var te_kn := minf(TE_MAX * power, P_MAX * power / maxf(speed, 1.5)) / 1000.0
+	var nft := -1.0
+	var nkind := ""
+	var ntext := ""
+	if nsw != null and nsw.d - front_d < 3300.0:
+		nft = (nsw.d - front_d) * 3.281
+		nkind = ("FACING" if nsw.facing else "TRAILING") + " SW"
+		var yi: Array = yardmaster_info()
+		ntext = str(yi[0]).replace("Yardmaster: ", "").left(38)
+	cab_builder.update({"lever": lever, "auto_h": auto_h, "ind_h": ind_h, "emergency": emergency,
+		"mph": int(round(speed * MPH)), "limit": line_max(), "er": er_psi, "bp": bp_psi, "bc": bc_psi,
+		"lbc": lbc_psi, "te_kn": te_kn, "db_kn": DB_MAX * dyn / 1000.0, "flow": maxf(0.0, (90.0 - bp_psi) * (1.0 if auto_h < 0.03 else 0.2)),
+		"alert": running and alert_t > ALERT_WARN, "sand": sand, "bell": bell, "lever_name": lever_name(),
+		"next_ft": nft, "next_kind": nkind, "next_txt": ntext})
 	_update_sound(delta)
 	hud.refresh()
 	if shot_dir != "":
@@ -865,10 +897,12 @@ func _load_best() -> void:
 	var cf := ConfigFile.new()
 	if cf.load("user://save.cfg") == OK:
 		best = int(cf.get_value("scores", "best", 0))
+		loco_model = str(cf.get_value("settings", "loco", "modern"))
 
 func _save_best() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("scores", "best", best)
+	cf.set_value("settings", "loco", loco_model)
 	cf.save("user://save.cfg")
 
 func yardmaster_info() -> Array:

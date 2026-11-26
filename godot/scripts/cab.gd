@@ -1,16 +1,24 @@
 extends RefCounted
-## Locomotive + cab interior, ported from v11's modern wide-body (ES44C4) unit.
-## Coordinates match v11: origin at the engineer's eye level, cab front at z = 0,
-## +z is toward the rear of the locomotive, -z is forward (the nose).
+## Locomotive + cab interior. Two models:
+##  "modern"  - wide-cab road unit (ES44AC-style) with an L-shaped desktop console:
+##              PTC + engine displays, analog gauges, desktop throttle, CCB brake stand.
+##  "classic" - standard-cab hood unit (GP38-style) with an AAR control stand,
+##              round gauge cluster, throttle quadrant and a 26L brake valve.
+## Coordinates (from v11): origin at the engineer's eye level, cab front at z = 0,
+## +z toward the rear of the locomotive, -z toward the nose.
 
 var m: Dictionary = {}
-var lever_thr: MeshInstance3D
-var lever_auto: MeshInstance3D
-var lever_ind: MeshInstance3D
+var model: String = "modern"
+var eye := Vector3(0.86, 0.0, 1.08)
+var lever_thr: Node3D
+var lever_db: Node3D
+var lever_auto: Node3D
+var lever_ind: Node3D
+var needles: Dictionary = {}
 var wipers: Array = []
-var ptc_label: Label3D
-var gauge_label: Label3D
+var ui: Dictionary = {}
 
+# ================================================================ materials
 func _mat(c: Color, rough: float, metal: float = 0.0) -> StandardMaterial3D:
 	var s := StandardMaterial3D.new()
 	s.albedo_color = c
@@ -24,62 +32,84 @@ func _unshaded(c: Color) -> StandardMaterial3D:
 	s.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return s
 
-func _tex_mat(path: String, scale: Vector3, rough: float, metal: float = 0.0) -> StandardMaterial3D:
+func _tri(path: String, scale: float, rough: float, metal: float = 0.0) -> StandardMaterial3D:
 	var s := StandardMaterial3D.new()
 	s.albedo_texture = load(path)
 	s.uv1_triplanar = true
-	s.uv1_scale = scale
+	s.uv1_scale = Vector3(scale, scale, scale)
 	s.roughness = rough
 	s.metallic = metal
 	s.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return s
 
+func _decal(path: String, uv_scale: Vector2 = Vector2.ONE, uv_off: Vector2 = Vector2.ZERO, alpha: bool = false) -> StandardMaterial3D:
+	var s := StandardMaterial3D.new()
+	s.albedo_texture = load(path)
+	s.uv1_scale = Vector3(uv_scale.x, uv_scale.y, 1)
+	s.uv1_offset = Vector3(uv_off.x, uv_off.y, 0)
+	s.roughness = 0.7
+	if alpha:
+		s.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		s.alpha_scissor_threshold = 0.5
+	s.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return s
+
 func _materials() -> void:
 	m["paint"] = _mat(Color("2a2f36"), 0.8, 0.05)
-	m["hood"] = _tex_mat("res://textures/hood.png", Vector3(1.0 / 5.5, 1.0 / 1.8, 1.0 / 5.5), 0.78, 0.08)
-	m["cab_in"] = _mat(Color("282e35"), 0.85, 0.12)
-	m["cab_wall"] = _mat(Color("363e45"), 0.88, 0.08)
-	m["floor"] = _tex_mat("res://textures/cab_floor.png", Vector3(1.2, 1.2, 1.2), 0.96, 0.05)
-	m["console"] = _mat(Color("1d2228"), 0.72, 0.25)
-	m["desk"] = _mat(Color("2e353d"), 0.65, 0.18)
-	m["seat"] = _mat(Color("242629"), 0.85, 0.05)
-	m["seat_trim"] = _mat(Color("3b3f45"), 0.75)
-	m["cooler"] = _mat(Color("1e5c99"), 0.45, 0.1)
-	m["cooler_lid"] = _mat(Color("e6e8eb"), 0.5)
-	m["door"] = _mat(Color("313840"), 0.8, 0.2)
-	m["deck"] = _mat(Color("34373b"), 0.9, 0.25)
-	m["handrail"] = _mat(Color("e2c021"), 0.45, 0.2)
-	m["brass"] = _mat(Color("b08d3c"), 0.35, 0.8)
-	m["mirror_frame"] = _mat(Color("16181c"), 0.5, 0.6)
-	m["red"] = _mat(Color("c92a22"), 0.4)
-	m["yellow"] = _mat(Color("e0b51c"), 0.52)
+	m["hood"] = _tri("res://textures/hood.png", 1.0 / 5.5, 0.78, 0.08)
+	m["hood"].uv1_scale = Vector3(1.0 / 5.5, 1.0 / 1.8, 1.0 / 5.5)
+	m["wall"] = _tri("res://textures/cab_wall_gray.png", 0.55, 0.85, 0.05)
+	m["wall_beige"] = _tri("res://textures/cab_wall_beige.png", 0.55, 0.85, 0.05)
+	m["desk"] = _tri("res://textures/desk_gray.png", 0.8, 0.75, 0.05)
+	m["console"] = _tri("res://textures/console_black.png", 1.2, 0.65, 0.2)
+	m["floor"] = _tri("res://textures/cab_mat.png", 1.6, 0.95)
+	m["switches"] = _decal("res://textures/switch_panel.png")
+	m["switches_beige"] = _decal("res://textures/switch_panel_beige.png")
+	m["warn"] = _decal("res://textures/decals.png", Vector2(0.5, 0.5), Vector2(0, 0))
+	m["fuel"] = _decal("res://textures/decals.png", Vector2(0.5, 0.5), Vector2(0.5, 0))
+	m["bulletin"] = _decal("res://textures/decals.png", Vector2(1, 0.5), Vector2(0, 0.5))
+	m["paper"] = _decal("res://textures/paper.png")
+	m["g_speed"] = _decal("res://textures/gauge_speed.png", Vector2.ONE, Vector2.ZERO, true)
+	m["g_er"] = _decal("res://textures/gauge_air_er.png", Vector2.ONE, Vector2.ZERO, true)
+	m["g_mr"] = _decal("res://textures/gauge_air_mr.png", Vector2.ONE, Vector2.ZERO, true)
+	m["seat"] = _mat(Color(0.3, 0.27, 0.25), 0.95)
+	m["seat_dark"] = _mat(Color(0.12, 0.12, 0.13), 0.8)
 	m["steel_dark"] = _mat(Color("262422"), 0.72, 0.35)
+	m["steel"] = _mat(Color(0.6, 0.6, 0.6), 0.4, 0.7)
 	m["black"] = _mat(Color("111214"), 0.6)
-	m["alerter"] = _unshaded(Color("f5c724"))
-	m["horn_btn"] = _unshaded(Color("d93829"))
-	m["sand_btn"] = _unshaded(Color("3b82f6"))
-	m["dome"] = _unshaded(Color("ffecc2"))
-	m["screen"] = _unshaded(Color("0b1320"))
+	m["rubber"] = _mat(Color(0.05, 0.05, 0.05), 0.9)
+	m["handrail"] = _mat(Color("e2c021"), 0.45, 0.2)
+	m["yellow"] = _mat(Color("e0b51c"), 0.52)
+	m["deck"] = _mat(Color("34373b"), 0.9, 0.25)
+	m["brass"] = _mat(Color("b08d3c"), 0.35, 0.8)
+	m["red"] = _mat(Color("c92a22"), 0.4)
+	m["knob_red"] = _mat(Color(0.75, 0.12, 0.1), 0.35)
+	m["knob_pink"] = _mat(Color(0.9, 0.55, 0.6), 0.5)
+	m["mirror_frame"] = _mat(Color("16181c"), 0.5, 0.6)
 	m["mirror_glass"] = _mat(Color("c8d6e0"), 0.05, 0.9)
+	m["alerter"] = _unshaded(Color("f5c724"))
+	m["dome"] = _unshaded(Color("ffecc2"))
+	m["lcd"] = _unshaded(Color(0.35, 0.9, 0.55))
+	m["ditch"] = _unshaded(Color("fff6d8"))
 	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color(0.62, 0.77, 0.86, 0.14)
+	glass.albedo_color = Color(0.62, 0.77, 0.86, 0.1)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
-	glass.no_depth_test = false
 	m["glass"] = glass
+	var gg: StandardMaterial3D = glass.duplicate()
+	gg.albedo_color = Color(0.8, 0.85, 0.9, 0.035)
+	m["gauge_glass"] = gg
 	var visor := StandardMaterial3D.new()
 	visor.albedo_color = Color(0.09, 0.13, 0.11, 0.72)
 	visor.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m["visor"] = visor
-	var ditch := _unshaded(Color("fff6d8"))
-	m["ditch"] = ditch
 	var fan := StandardMaterial3D.new()
 	fan.albedo_texture = load("res://textures/fan.png")
 	fan.roughness = 0.8
 	m["fan"] = fan
 
-# ---------------------------------------------------------------- primitives
+# ================================================================ primitives
 func box(p: Node, w: float, h: float, d: float, mat: Material, x: float, y: float, z: float) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
@@ -98,6 +128,19 @@ func cyl(p: Node, rt: float, rb: float, h: float, mat: Material, pos: Vector3, s
 	cm.height = h
 	cm.radial_segments = segs
 	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = pos
+	p.add_child(mi)
+	return mi
+
+func ball(p: Node, r: float, mat: Material, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = r
+	sm.height = r * 2.0
+	sm.radial_segments = 12
+	sm.rings = 6
+	mi.mesh = sm
 	mi.material_override = mat
 	mi.position = pos
 	p.add_child(mi)
@@ -124,14 +167,143 @@ func quad(p: Node, w: float, h: float, mat: Material, pos: Vector3, rot: Vector3
 	p.add_child(mi)
 	return mi
 
-# ---------------------------------------------------------------- locomotive
-func build() -> Node3D:
+func pivot(p: Node, pos: Vector3, rot: Vector3 = Vector3.ZERO) -> Node3D:
+	var n := Node3D.new()
+	n.position = pos
+	n.rotation = rot
+	p.add_child(n)
+	return n
+
+# ================================================================ instruments
+## A round gauge face on parent p (in p's XY plane, facing +z) with needles.
+func gauge(p: Node, mat_key: String, r: float, pos: Vector3, needle_keys: Array, needle_cols: Array) -> void:
+	box(p, r * 2.25, r * 2.25, 0.03, m["black"], pos.x, pos.y, pos.z - 0.012)
+	var face := quad(p, r * 2.0, r * 2.0, m[mat_key], pos + Vector3(0, 0, 0.004), Vector3.ZERO)
+	face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for i in needle_keys.size():
+		var pv := pivot(p, pos + Vector3(0, 0, 0.008 + i * 0.003))
+		box(pv, r * 0.06, r * 0.78, 0.002, _unshaded(needle_cols[i]), 0, r * 0.3, 0)
+		needles[needle_keys[i]] = pv
+	var hub := cyl(p, r * 0.08, r * 0.08, 0.01, m["black"], pos + Vector3(0, 0, 0.016), 10)
+	hub.rotation.x = PI / 2.0
+	quad(p, r * 2.0, r * 2.0, m["gauge_glass"], pos + Vector3(0, 0, 0.02), Vector3.ZERO)
+
+func set_needle(key: String, value: float, vmax: float) -> void:
+	if not needles.has(key):
+		return
+	var t := clampf(value / vmax, 0.0, 1.0)
+	needles[key].rotation.z = deg_to_rad(225.0 - 270.0 * t) - PI / 2.0
+
+## A live screen: a SubViewport drawn onto a quad. Only the first screen of each
+## kind gets its own viewport; later ones share its picture.
+var _vp_tex: Dictionary = {}
+
+func screen(p: Node, w: float, h: float, pos: Vector3, rot: Vector3, kind: String) -> void:
+	if not _vp_tex.has(kind):
+		var vp := SubViewport.new()
+		vp.size = Vector2i(512, 384)
+		vp.disable_3d = true
+		vp.transparent_bg = false
+		vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		p.add_child(vp)
+		var root := Control.new()
+		root.size = Vector2(512, 384)
+		vp.add_child(root)
+		var bg := ColorRect.new()
+		bg.color = Color(0.02, 0.03, 0.05)
+		bg.size = Vector2(512, 384)
+		root.add_child(bg)
+		if kind == "ptc":
+			_build_ptc(root)
+		else:
+			_build_eng(root)
+		_vp_tex[kind] = vp.get_texture()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = _vp_tex[kind]
+	var bez := box(p, w + 0.05, h + 0.05, 0.04, m["console"], pos.x, pos.y, pos.z)
+	bez.rotation = rot
+	var s := quad(p, w, h, mat, pos, rot)
+	s.position += s.basis.z * 0.021
+	s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+func _lbl(root: Control, pos: Vector2, size: int, col: Color, text: String = "") -> Label:
+	var l := Label.new()
+	l.position = pos
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", col)
+	l.text = text
+	root.add_child(l)
+	return l
+
+func _rect(root: Control, pos: Vector2, size: Vector2, col: Color) -> ColorRect:
+	var r := ColorRect.new()
+	r.position = pos
+	r.size = size
+	r.color = col
+	root.add_child(r)
+	return r
+
+func _build_eng(root: Control) -> void:
+	_rect(root, Vector2(0, 0), Vector2(512, 40), Color(0.12, 0.2, 0.35))
+	ui["e_title"] = _lbl(root, Vector2(12, 4), 24, Color.WHITE, "LOCO 8062   MAIN DISPLAY")
+	ui["e_speed"] = _lbl(root, Vector2(16, 48), 92, Color(1, 0.86, 0.3), "0")
+	_lbl(root, Vector2(22, 150), 24, Color(0.8, 0.8, 0.8), "MPH")
+	ui["e_lever"] = _lbl(root, Vector2(200, 52), 34, Color.WHITE, "IDLE")
+	_lbl(root, Vector2(200, 100), 20, Color(0.7, 0.75, 0.8), "TRACTIVE EFFORT")
+	_rect(root, Vector2(200, 126), Vector2(296, 22), Color(0.15, 0.15, 0.18))
+	ui["e_te_bar"] = _rect(root, Vector2(200, 126), Vector2(0, 22), Color(0.2, 0.8, 0.35))
+	ui["e_te"] = _lbl(root, Vector2(200, 150), 20, Color(0.6, 1, 0.65), "0 kN")
+	_lbl(root, Vector2(200, 178), 20, Color(0.7, 0.75, 0.8), "DYNAMIC BRAKE")
+	_rect(root, Vector2(200, 204), Vector2(296, 22), Color(0.15, 0.15, 0.18))
+	ui["e_db_bar"] = _rect(root, Vector2(200, 204), Vector2(0, 22), Color(0.95, 0.6, 0.15))
+	ui["e_db"] = _lbl(root, Vector2(200, 228), 20, Color(1, 0.75, 0.4), "0 kN")
+	_rect(root, Vector2(0, 262), Vector2(512, 2), Color(0.3, 0.35, 0.45))
+	ui["e_air1"] = _lbl(root, Vector2(12, 270), 22, Color(0.75, 0.9, 1), "")
+	ui["e_air2"] = _lbl(root, Vector2(12, 300), 22, Color(0.75, 0.9, 1), "")
+	ui["e_flags"] = _lbl(root, Vector2(12, 336), 24, Color(1, 0.4, 0.3), "")
+
+func _build_ptc(root: Control) -> void:
+	_rect(root, Vector2(0, 0), Vector2(512, 40), Color(0.05, 0.35, 0.15))
+	_lbl(root, Vector2(12, 4), 26, Color.WHITE, "PTC   ACTIVE")
+	_lbl(root, Vector2(16, 52), 20, Color(0.7, 0.75, 0.8), "SPEED")
+	ui["p_speed"] = _lbl(root, Vector2(16, 72), 64, Color.WHITE, "0")
+	_rect(root, Vector2(170, 52), Vector2(120, 120), Color(0.95, 0.95, 0.92))
+	_lbl(root, Vector2(186, 56), 18, Color.BLACK, "SPEED LIMIT")
+	ui["p_limit"] = _lbl(root, Vector2(196, 80), 60, Color.BLACK, "40")
+	_lbl(root, Vector2(310, 52), 20, Color(0.7, 0.75, 0.8), "TARGET")
+	ui["p_target"] = _lbl(root, Vector2(310, 72), 30, Color(1, 0.85, 0.3), "--")
+	ui["p_target2"] = _lbl(root, Vector2(310, 112), 22, Color(1, 0.85, 0.3), "")
+	_rect(root, Vector2(16, 196), Vector2(480, 6), Color(0.85, 0.85, 0.85))
+	ui["p_marker"] = _rect(root, Vector2(16, 182), Vector2(6, 34), Color(1, 0.6, 0.1))
+	_lbl(root, Vector2(16, 220), 16, Color(0.6, 0.6, 0.6), "0")
+	_lbl(root, Vector2(440, 220), 16, Color(0.6, 0.6, 0.6), "2 MI")
+	ui["p_next"] = _lbl(root, Vector2(16, 250), 24, Color(1, 0.85, 0.3), "")
+	ui["p_next2"] = _lbl(root, Vector2(16, 284), 22, Color(0.8, 0.85, 0.9), "")
+	ui["p_warn"] = _lbl(root, Vector2(16, 330), 26, Color(1, 0.35, 0.3), "")
+
+# ================================================================ build
+func build(kind: String) -> Node3D:
+	model = kind
 	_materials()
+	needles.clear()
+	ui.clear()
+	wipers.clear()
+	_vp_tex.clear()
+	lever_db = null
 	var L := Node3D.new()
-	var deck_y := -2.05
-	var front_len := 4.2
-	var rear_len := 13.8
-	var w := 3.18
+	if kind == "classic":
+		eye = Vector3(0.78, 0.0, 1.08)
+		_exterior_classic(L)
+		_interior_classic(L)
+	else:
+		eye = Vector3(0.86, 0.0, 1.08)
+		_exterior_modern(L)
+		_interior_modern(L)
+	return L
+
+# ---------------------------------------------------------------- exteriors
+func _deck_and_ends(L: Node, w: float, front_len: float, rear_len: float, deck_y: float) -> void:
 	var total := front_len + rear_len
 	box(L, w, 0.12, total, m["deck"], 0, deck_y, (rear_len - front_len) / 2.0)
 	for s in [-1.0, 1.0]:
@@ -139,58 +311,51 @@ func build() -> Node3D:
 	_deck_end(L, deck_y, -front_len, w, -1.0)
 	_deck_end(L, deck_y, rear_len, w, 1.0)
 	for s in [-1.0, 1.0]:
-		cyl(L, 0.12, 0.12, 0.12, m["paint"], Vector3(s * (w / 2.0 - 0.85), deck_y + 0.12, -front_len + 0.45))
-		cyl(L, 0.13, 0.13, 0.03, m["steel_dark"], Vector3(s * (w / 2.0 - 0.85), deck_y + 0.19, -front_len + 0.45))
-		# ditch lights
 		var sx: float = s * (w / 2.0 - 0.3)
 		box(L, 0.28, 0.28, 0.2, m["black"], sx, deck_y + 0.25, -front_len + 0.12)
-		var lamp := cyl(L, 0.1, 0.1, 0.02, m["ditch"], Vector3(sx, deck_y + 0.25, -front_len + 0.015), 16)
-		lamp.rotation.x = PI / 2.0
-	# wide-body nose
+		var dl := cyl(L, 0.1, 0.1, 0.02, m["ditch"], Vector3(sx, deck_y + 0.25, -front_len + 0.015), 16)
+		dl.rotation.x = PI / 2.0
+
+func _long_hood(L: Node, deck_y: float, hood_w: float) -> void:
+	var r_len := 10.2
+	var r_start := 2.75
+	var r_h := 1.65
+	box(L, hood_w, r_h, r_len - 2.6, m["hood"], 0, deck_y + r_h / 2.0 + 0.06, r_start + (r_len - 2.6) / 2.0)
+	box(L, hood_w + 0.7, r_h + 0.12, 2.6, m["hood"], 0, deck_y + (r_h + 0.12) / 2.0 + 0.06, r_start + r_len - 1.3)
+	for z in [r_start + r_len - 1.9, r_start + r_len - 0.7]:
+		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
+
+func _exterior_modern(L: Node) -> void:
+	var deck_y := -2.05
+	_deck_and_ends(L, 3.18, 4.2, 13.8, deck_y)
 	var hm: Material = m["hood"]
 	box(L, 2.96, 1.02, 1.85, hm, 0, deck_y + 0.56, -0.92)
 	var slope := box(L, 2.96, 0.08, 1.45, hm, 0, deck_y + 0.92, -2.42)
 	slope.rotation.x = -0.2
 	box(L, 2.96, 0.78, 1.4, hm, 0, deck_y + 0.45, -2.42)
 	box(L, 2.98, 0.06, 0.08, m["steel_dark"], 0, deck_y + 1.07, -1.78)
-	for z in [-0.5, -1.6]:
-		var t := MeshInstance3D.new()
-		var tm := TorusMesh.new()
-		tm.inner_radius = 0.055
-		tm.outer_radius = 0.085
-		t.mesh = tm
-		t.material_override = m["steel_dark"]
-		t.position = Vector3(0, deck_y + 1.08, z)
-		t.rotation = Vector3(0, 0, PI / 2.0)
-		L.add_child(t)
-	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(-0.55, deck_y + 0.98, -2.6), 16)   # bell
-	box(L, 0.6, 0.18, 0.22, m["black"], 0, deck_y + 0.86, -3.13)                   # number board / headlight housing
-	box(L, 0.16, 0.5, 0.16, m["black"], 0.85, deck_y + 0.3, -3.1)
+	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(-0.55, deck_y + 0.98, -2.6), 16)
+	box(L, 0.6, 0.18, 0.22, m["black"], 0, deck_y + 0.86, -3.13)
 	for s in [-1.0, 1.0]:
 		tube(L, Vector3(s * 0.95, deck_y + 0.3, -3.16), Vector3(s * 0.95, deck_y + 0.85, -3.16), 0.02, m["handrail"])
-	# long hood behind the cab
-	var r_len := 10.2
-	var r_start := 2.75
-	var r_h := 1.65
-	box(L, 1.85, r_h, r_len - 2.6, hm, 0, deck_y + r_h / 2.0 + 0.06, r_start + (r_len - 2.6) / 2.0)
-	box(L, 2.55, r_h + 0.12, 2.6, hm, 0, deck_y + (r_h + 0.12) / 2.0 + 0.06, r_start + r_len - 1.3)
-	for z in [r_start + r_len - 1.9, r_start + r_len - 0.7]:
-		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
-	_railings(L, deck_y, -0.05, -front_len + 0.15, [-1.52, 1.52], 0.45)
-	_railings(L, deck_y, 2.75, rear_len - 0.15, [-1.52, 1.52], 0.45)
-	box(L, 3.14, 0.62, 0.12, m["paint"], 0, -0.86, 0.05)   # cab front wall below the windshields
-	_cab_interior(L, 3.16)
-	for c in _all_meshes(L):
-		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	return L
+	_long_hood(L, deck_y, 1.85)
+	_railings(L, deck_y, -0.05, -4.05, [-1.52, 1.52], 0.45)
+	_railings(L, deck_y, 2.75, 13.65, [-1.52, 1.52], 0.45)
 
-func _all_meshes(n: Node) -> Array:
-	var out: Array = []
-	for c in n.get_children():
-		if c is GeometryInstance3D:
-			out.append(c)
-		out.append_array(_all_meshes(c))
-	return out
+func _exterior_classic(L: Node) -> void:
+	var deck_y := -2.05
+	_deck_and_ends(L, 3.04, 4.6, 13.6, deck_y)
+	var hm: Material = m["hood"]
+	box(L, 1.82, 1.18, 3.15, hm, 0, deck_y + 0.64, -1.62)
+	box(L, 1.84, 0.06, 3.18, m["steel_dark"], 0, deck_y + 1.24, -1.62)
+	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(-0.48, deck_y + 1.32, -2.85), 16)
+	box(L, 0.7, 0.22, 0.1, m["black"], 0, deck_y + 1.0, -3.2)
+	for hx in [-0.18, 0.18]:
+		var hl := cyl(L, 0.09, 0.09, 0.04, m["ditch"], Vector3(hx, deck_y + 1.0, -3.26), 14)
+		hl.rotation.x = PI / 2.0
+	_long_hood(L, deck_y, 1.80)
+	_railings(L, deck_y, -0.05, -4.45, [-1.46, 1.46], 0.45)
+	_railings(L, deck_y, 2.75, 13.45, [-1.46, 1.46], 0.45)
 
 func _railings(p: Node, deck_y: float, z0: float, z1: float, xs: Array, step_gap_x: float) -> void:
 	var top := deck_y + 1.05
@@ -206,154 +371,295 @@ func _railings(p: Node, deck_y: float, z0: float, z1: float, xs: Array, step_gap
 			tube(p, Vector3(x, deck_y, z), Vector3(x, top, z), 0.03, m["handrail"])
 		var gx: float = signf(x) * step_gap_x
 		tube(p, Vector3(x, top, z1), Vector3(gx, top, z1), 0.025, m["handrail"])
-		tube(p, Vector3(x, mid, z1), Vector3(gx, mid, z1), 0.025, m["handrail"])
 		tube(p, Vector3(gx, deck_y, z1), Vector3(gx, top, z1), 0.03, m["handrail"])
 
 func _deck_end(p: Node, deck_y: float, z_end: float, w: float, dir_z: float) -> void:
 	box(p, w + 0.04, 0.05, 0.12, m["yellow"], 0, deck_y + 0.07, z_end - dir_z * 0.05)
 	box(p, w, 0.45, 0.16, m["paint"], 0, deck_y - 0.3, z_end - dir_z * 0.08)
-	box(p, 0.36, 0.28, 0.75, m["steel_dark"], 0, deck_y - 0.34, z_end + dir_z * 0.38)    # coupler
+	box(p, 0.36, 0.28, 0.75, m["steel_dark"], 0, deck_y - 0.34, z_end + dir_z * 0.38)
 	for s in [-1.0, 1.0]:
 		for i in 3:
 			box(p, 0.55, 0.04, 0.3, m["yellow"], s * (w / 2.0 - 0.35), deck_y - 0.35 - i * 0.38, z_end - dir_z * 0.25)
-		tube(p, Vector3(s * (w / 2.0 - 0.05), deck_y - 1.2, z_end - dir_z * 0.15), Vector3(s * (w / 2.0 - 0.05), deck_y + 0.05, z_end - dir_z * 0.15), 0.022, m["handrail"])
 
-func _seat(p: Node, x: float, floor_y: float, z: float) -> void:
-	var g := Node3D.new()
-	g.position = Vector3(x, floor_y, z)
-	p.add_child(g)
-	cyl(g, 0.08, 0.12, 0.48, m["steel_dark"], Vector3(0, 0.24, 0), 12)
-	box(g, 0.52, 0.11, 0.5, m["seat"], 0, 0.5, 0)
-	for s in [-1.0, 1.0]:
-		box(g, 0.07, 0.06, 0.38, m["seat_trim"], s * 0.28, 0.68, 0.02)
-	var back := box(g, 0.48, 0.62, 0.1, m["seat"], 0, 0.82, 0.22)
-	back.rotation.x = -0.1
-	box(g, 0.28, 0.18, 0.09, m["seat_trim"], 0, 1.18, 0.25)
-
-func _cab_interior(p: Node, w: float) -> void:
-	var cab_len := 2.75
-	var floor_y := -1.35
-	var ceil_y := 0.68
-	var sill_y := -0.58
+# ---------------------------------------------------------------- shared cab shell
+func _shell(p: Node, w: float, cab_len: float, floor_y: float, ceil_y: float, sill_y: float, top_y: float, win_xs: Array, win_w: float, wall: Material, rounded: bool) -> void:
 	var half_w := w / 2.0
-	box(p, w - 0.08, 0.08, cab_len, m["floor"], 0, floor_y, cab_len / 2.0)
-	box(p, w + 0.08, 0.14, cab_len + 0.2, m["paint"], 0, ceil_y + 0.07, cab_len / 2.0 - 0.05)
-	box(p, w - 0.1, 0.05, cab_len, m["cab_in"], 0, ceil_y - 0.01, cab_len / 2.0)
-	box(p, 0.32, 0.04, 0.32, m["dome"], 0, ceil_y - 0.03, 1.35)
-	for vx in [-0.82, 0.82]:
-		var visor := box(p, 0.68, 0.22, 0.02, m["visor"], vx, ceil_y - 0.13, 0.12)
-		visor.rotation.x = 0.28
-	# windshield frames
+	box(p, w - 0.08, 0.06, cab_len, m["floor"], 0, floor_y, cab_len / 2.0)
+	box(p, w + 0.08, 0.14, cab_len + 0.2, m["paint"], 0, ceil_y + 0.12, cab_len / 2.0 - 0.05)
+	box(p, w - 0.1, 0.05, cab_len, wall, 0, ceil_y, cab_len / 2.0)
+	box(p, w, sill_y - floor_y, 0.1, wall, 0, (sill_y + floor_y) / 2.0, 0.0)
+	box(p, w, ceil_y - top_y, 0.1, wall, 0, (ceil_y + top_y) / 2.0, 0.0)
+	var edges: Array = [-half_w]
+	for x in win_xs:
+		edges.append(x - win_w / 2.0)
+		edges.append(x + win_w / 2.0)
+	edges.append(half_w)
+	for i in range(0, edges.size(), 2):
+		var a: float = edges[i]
+		var b: float = edges[i + 1]
+		if b - a > 0.005:
+			box(p, b - a, top_y - sill_y, 0.1, wall, (a + b) / 2.0, (top_y + sill_y) / 2.0, 0.0)
+	var win_h := top_y - sill_y
+	for x in win_xs:
+		box(p, win_w, 0.03, 0.12, m["rubber"], x, sill_y + 0.015, 0.0)
+		box(p, win_w, 0.03, 0.12, m["rubber"], x, top_y - 0.015, 0.0)
+		box(p, 0.03, win_h, 0.12, m["rubber"], x - win_w / 2.0 + 0.015, (sill_y + top_y) / 2.0, 0.0)
+		box(p, 0.03, win_h, 0.12, m["rubber"], x + win_w / 2.0 - 0.015, (sill_y + top_y) / 2.0, 0.0)
+		if rounded:
+			var c := 0.09
+			for cx in [-1.0, 1.0]:
+				for cy in [-1.0, 1.0]:
+					var corner := box(p, c * 1.4, c * 1.4, 0.1, wall, x + cx * (win_w / 2.0 - c * 0.35), (sill_y + top_y) / 2.0 + cy * (win_h / 2.0 - c * 0.35), 0.0)
+					corner.rotation.z = PI / 4.0
+		quad(p, win_w, win_h, m["glass"], Vector3(x, (sill_y + top_y) / 2.0, -0.02), Vector3.ZERO)
+		var wp := pivot(p, Vector3(x - win_w * 0.35, sill_y + 0.04, -0.07), Vector3(0, 0, -1.35))
+		box(wp, 0.02, win_h * 0.62, 0.02, m["black"], 0, win_h * 0.31, 0)
+		box(wp, 0.035, win_h * 0.55, 0.02, m["black"], 0.02, win_h * 0.34, -0.012)
+		wipers.append(wp)
+	var side_sill := sill_y + 0.08
 	for s in [-1.0, 1.0]:
-		box(p, 0.14, ceil_y - sill_y, 0.16, m["cab_in"], s * (half_w - 0.07), (ceil_y + sill_y) / 2.0, 0.04)
-		box(p, 0.16, sill_y - floor_y, cab_len, m["paint"], s * (half_w - 0.08), (sill_y + floor_y) / 2.0, cab_len / 2.0)
-		box(p, 0.16, ceil_y - sill_y, 0.35, m["paint"], s * (half_w - 0.08), (ceil_y + sill_y) / 2.0, cab_len - 0.18)
-	box(p, 0.11, ceil_y - sill_y, 0.14, m["cab_in"], 0, (ceil_y + sill_y) / 2.0, 0.03)   # centre mullion
-	for wx in [-0.74, 0.74]:
-		quad(p, 1.32, ceil_y - sill_y - 0.06, m["glass"], Vector3(wx, (ceil_y + sill_y) / 2.0, 0.02), Vector3.ZERO)
-	for s in [-1.0, 1.0]:
-		quad(p, cab_len - 0.55, ceil_y - sill_y - 0.06, m["glass"], Vector3(s * (half_w - 0.06), (ceil_y + sill_y) / 2.0, cab_len / 2.0), Vector3(0, PI / 2.0, 0))
-	# back bulkhead
+		var sx: float = s * (half_w - 0.05)
+		box(p, 0.1, side_sill - floor_y, cab_len, wall, sx, (side_sill + floor_y) / 2.0, cab_len / 2.0)
+		box(p, 0.1, ceil_y - top_y, cab_len, wall, sx, (ceil_y + top_y) / 2.0, cab_len / 2.0)
+		box(p, 0.1, top_y - side_sill, 0.3, wall, sx, (top_y + side_sill) / 2.0, 0.15)
+		box(p, 0.1, top_y - side_sill, 0.12, wall, sx, (top_y + side_sill) / 2.0, 0.95)
+		box(p, 0.1, top_y - side_sill, cab_len - 1.65, wall, sx, (top_y + side_sill) / 2.0, 1.65 + (cab_len - 1.65) / 2.0)
+		quad(p, 1.35, top_y - side_sill, m["glass"], Vector3(sx + s * 0.04, (top_y + side_sill) / 2.0, 0.97), Vector3(0, PI / 2.0, 0))
+		box(p, 0.04, 0.03, 1.35, m["rubber"], sx - s * 0.06, side_sill, 0.97)
 	var back_z := cab_len
-	box(p, w, 0.88, 0.14, m["cab_wall"], 0, floor_y + 0.44, back_z)
-	box(p, w, 0.35, 0.14, m["cab_wall"], 0, ceil_y - 0.17, back_z)
-	box(p, 1.05, ceil_y - floor_y - 0.08, 0.24, m["console"], 0, (ceil_y + floor_y) / 2.0, back_z - 0.12)
-	box(p, 0.96, 1.15, 0.03, m["cab_wall"], 0, -0.35, back_z - 0.245)
-	cyl(p, 0.08, 0.08, 0.52, m["red"], Vector3(-0.62, -0.82, back_z - 0.14), 12)    # fire extinguisher
+	box(p, w - 0.9, ceil_y - floor_y, 0.1, wall, 0.45, (ceil_y + floor_y) / 2.0, back_z)
+	box(p, 0.85, ceil_y - floor_y, 0.06, wall, -half_w + 0.47, (ceil_y + floor_y) / 2.0, back_z + 0.02)
+	box(p, 0.4, 0.55, 0.02, m["rubber"], -half_w + 0.5, 0.05, back_z - 0.02)
+	quad(p, 0.36, 0.5, m["glass"], Vector3(-half_w + 0.5, 0.05, back_z - 0.04), Vector3(0, PI, 0))
+	box(p, 0.05, 0.05, 0.14, m["steel"], -half_w + 0.82, -0.45, back_z - 0.08)
+	for vx in win_xs:
+		var visor := box(p, win_w * 0.42, 0.14, 0.015, m["visor"], vx + win_w * 0.22, top_y - 0.05, 0.1)
+		visor.rotation.x = 0.28
+	for dz in [0.9, 1.9]:
+		box(p, 0.3, 0.05, 0.22, m["dome"], 0.1, ceil_y - 0.04, dz)
+
+func _seat(p: Node, x: float, floor_y: float, z: float, cloth: Material) -> void:
+	var g := pivot(p, Vector3(x, floor_y, z))
+	box(g, 0.34, 0.12, 0.34, m["seat_dark"], 0, 0.06, 0)
+	cyl(g, 0.06, 0.06, 0.42, m["steel"], Vector3(0, 0.3, 0), 10)
+	box(g, 0.56, 0.14, 0.54, cloth, 0, 0.55, 0)
+	box(g, 0.6, 0.06, 0.56, m["seat_dark"], 0, 0.47, 0)
 	for s in [-1.0, 1.0]:
-		box(p, 0.36, ceil_y - floor_y, 0.14, m["cab_wall"], s * (half_w - 0.18), (ceil_y + floor_y) / 2.0, back_z)
-	# doors
-	var door_z := back_z - 0.44
-	for s in [-1.0, 1.0]:
-		box(p, 0.08, ceil_y - floor_y - 0.12, 0.72, m["door"], s * (half_w - 0.04), (ceil_y + floor_y) / 2.0, door_z)
-		box(p, 0.04, 0.56, 0.44, m["glass"], s * (half_w - 0.03), 0.12, door_z)
-		box(p, 0.12, 0.04, 0.16, m["brass"], s * (half_w - 0.08), -0.38, door_z - 0.22 * s)
-	# step-down into the nose, cooler, restroom shell
-	var nose_floor := floor_y - 0.32
-	box(p, 0.72, 0.16, 0.32, m["floor"], -0.22, floor_y - 0.16, -0.18)
-	box(p, 1.55, 0.08, 1.45, m["floor"], 0, nose_floor, -0.85)
-	box(p, 0.44, 0.42, 0.64, m["cooler"], -0.52, nose_floor + 0.24, -0.68)
-	box(p, 0.46, 0.06, 0.66, m["cooler_lid"], -0.52, nose_floor + 0.47, -0.68)
-	box(p, 0.96, 1.12, 1.25, m["cab_wall"], 0.28, nose_floor + 0.56, -0.85)
-	box(p, 0.06, 0.98, 0.56, m["door"], -0.21, nose_floor + 0.52, -0.78)
-	# engineer's station (right)
-	var eng_x := 0.86
-	_seat(p, eng_x, floor_y, 1.18)
+		box(g, 0.08, 0.06, 0.42, m["seat_dark"], s * 0.32, 0.78, 0.02)
+		box(g, 0.05, 0.2, 0.05, m["seat_dark"], s * 0.32, 0.68, 0.2)
+	var back := box(g, 0.52, 0.72, 0.12, cloth, 0, 0.98, 0.27)
+	back.rotation.x = -0.12
+	box(g, 0.34, 0.2, 0.1, cloth, 0, 1.44, 0.33)
+
+func _radio(p: Node, pos: Vector3, rot: Vector3) -> void:
+	var r := pivot(p, pos, rot)
+	box(r, 0.28, 0.12, 0.16, m["black"], 0, 0, 0)
+	box(r, 0.12, 0.04, 0.005, m["lcd"], -0.04, 0.02, 0.081)
+	for i in 3:
+		var k := cyl(r, 0.012, 0.012, 0.02, m["steel"], Vector3(0.07 + i * 0.03, -0.02, 0.085), 8)
+		k.rotation.x = PI / 2.0
+	box(r, 0.05, 0.11, 0.04, m["black"], -0.2, -0.08, 0.04)
+	for i in 10:
+		var t := float(i) / 10.0
+		ball(r, 0.009, m["black"], Vector3(-0.2 + sin(t * 30.0) * 0.012, -0.16 - t * 0.22, 0.05 + cos(t * 30.0) * 0.012))
+
+# ---------------------------------------------------------------- modern desktop cab
+func _interior_modern(p: Node) -> void:
+	var w := 3.16
+	var floor_y := -1.35
+	var sill_y := -0.42
+	var top_y := 0.45
+	_shell(p, w, 2.75, floor_y, 0.68, sill_y, top_y, [-0.76, 0.76], 1.36, m["wall"], false)
 	var desk_y := -0.66
-	var eng_desk_z := 0.46
-	box(p, 1.05, 0.68, 0.62, m["console"], eng_x, floor_y + 0.34, eng_desk_z)
-	box(p, 1.08, 0.05, 0.66, m["desk"], eng_x, desk_y, eng_desk_z)
-	var ptc := quad(p, 0.36, 0.27, m["screen"], Vector3(eng_x - 0.12, desk_y + 0.16, eng_desk_z - 0.14), Vector3(-0.26, 0, 0))
-	ptc_label = Label3D.new()
-	ptc_label.font_size = 28
-	ptc_label.pixel_size = 0.0011
-	ptc_label.modulate = Color(0.45, 1.0, 0.6)
-	ptc_label.outline_size = 0
-	ptc_label.position = Vector3(0, 0, 0.004)
-	ptc_label.shaded = false
-	ptc_label.double_sided = false
-	ptc.add_child(ptc_label)
-	cyl(p, 0.065, 0.065, 0.045, m["alerter"], Vector3(eng_x + 0.28, desk_y + 0.045, eng_desk_z - 0.12), 16)
-	var side_x := eng_x - 0.54
-	var side_z := 0.96
-	box(p, 0.28, 0.72, 0.86, m["console"], side_x, floor_y + 0.36, side_z)
-	var gauge := quad(p, 0.56, 0.54, m["screen"], Vector3(side_x + 0.145, desk_y + 0.06, side_z), Vector3(0, PI / 2.0, 0))
-	gauge_label = Label3D.new()
-	gauge_label.font_size = 26
-	gauge_label.pixel_size = 0.0012
-	gauge_label.modulate = Color(1.0, 0.85, 0.4)
-	gauge_label.outline_size = 0
-	gauge_label.position = Vector3(0, 0, 0.004)
-	gauge_label.shaded = false
-	gauge_label.double_sided = false
-	gauge.add_child(gauge_label)
-	var sand := cyl(p, 0.045, 0.045, 0.04, m["sand_btn"], Vector3(side_x + 0.155, desk_y - 0.18, side_z - 0.22), 14)
-	sand.rotation.z = -PI / 2.0
-	lever_thr = box(p, 0.04, 0.18, 0.04, m["seat_trim"], side_x + 0.08, desk_y + 0.1, side_z - 0.14)
-	lever_auto = box(p, 0.04, 0.16, 0.04, m["red"], side_x + 0.08, desk_y + 0.1, side_z + 0.08)
-	lever_ind = box(p, 0.035, 0.14, 0.035, m["sand_btn"], side_x + 0.08, desk_y + 0.09, side_z + 0.24)
-	# conductor's station (left): two tandem seats, desk, radio, horn button
-	var cond_x := -0.86
-	_seat(p, cond_x, floor_y, 1.18)
-	_seat(p, cond_x, floor_y, 1.92)
-	var cond_desk_z := 0.48
-	box(p, 0.98, 0.66, 0.56, m["console"], cond_x, floor_y + 0.33, cond_desk_z)
-	box(p, 1.02, 0.05, 0.6, m["desk"], cond_x, desk_y, cond_desk_z)
-	quad(p, 0.36, 0.27, m["screen"], Vector3(cond_x + 0.14, desk_y + 0.16, cond_desk_z - 0.12), Vector3(-0.26, 0, 0))
-	cyl(p, 0.055, 0.055, 0.045, m["horn_btn"], Vector3(cond_x - 0.22, desk_y + 0.045, cond_desk_z - 0.08), 16)
-	box(p, 0.24, 0.1, 0.16, m["console"], cond_x - 0.24, desk_y + 0.07, cond_desk_z + 0.14)
-	box(p, 0.06, 0.14, 0.05, m["black"], cond_x - 0.36, desk_y + 0.09, cond_desk_z + 0.14)
-	# wipers
-	for wx in [-0.72, 0.72]:
-		var piv := Node3D.new()
-		piv.position = Vector3(wx, sill_y + 0.04, -0.04)
-		p.add_child(piv)
-		box(piv, 0.025, 0.56, 0.025, m["black"], 0, 0.28, 0)
-		box(piv, 0.02, 0.48, 0.03, m["black"], 0, 0.32, -0.015)
-		piv.rotation.z = 1.25 if wx > 0 else -1.25
-		wipers.append(piv)
-	# exterior side mirrors
+	# engineer's L-shaped desk (right side)
+	box(p, 1.4, desk_y - floor_y, 0.55, m["desk"], 0.82, (desk_y + floor_y) / 2.0, 0.33)
+	box(p, 1.44, 0.04, 0.6, m["console"], 0.82, desk_y + 0.02, 0.33)
+	box(p, 0.38, desk_y - floor_y + 0.05, 0.75, m["desk"], 1.33, (desk_y + floor_y) / 2.0 + 0.025, 0.95)
+	box(p, 0.4, 0.04, 0.78, m["console"], 1.33, desk_y + 0.07, 0.95)
+	# slanted instrument panel facing the engineer
+	var panel := pivot(p, Vector3(0.82, desk_y + 0.17, 0.12), Vector3(-0.42, 0, 0))
+	box(panel, 1.42, 0.36, 0.05, m["console"], 0, 0, 0)
+	screen(panel, 0.32, 0.24, Vector3(-0.44, 0.0, 0.03), Vector3.ZERO, "ptc")
+	screen(panel, 0.32, 0.24, Vector3(-0.07, 0.0, 0.03), Vector3.ZERO, "eng")
+	gauge(panel, "g_speed", 0.07, Vector3(0.23, 0.05, 0.03), ["speed"], [Color(1, 1, 1)])
+	gauge(panel, "g_er", 0.07, Vector3(0.40, 0.05, 0.03), ["bp", "er"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	gauge(panel, "g_mr", 0.07, Vector3(0.57, 0.05, 0.03), ["mr", "bc"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	quad(panel, 0.5, 0.08, m["switches"], Vector3(0.4, -0.13, 0.028), Vector3.ZERO)
+	# desktop throttle (left hand) + reverser
+	var tb := pivot(p, Vector3(0.52, desk_y + 0.05, 0.42))
+	box(tb, 0.14, 0.05, 0.3, m["console"], 0, 0, 0)
+	box(tb, 0.03, 0.01, 0.26, m["rubber"], 0, 0.026, 0)
+	for i in 9:
+		box(tb, 0.05, 0.004, 0.004, m["steel"], 0.05, 0.027, -0.12 + i * 0.03)
+	lever_thr = pivot(tb, Vector3(0, 0.02, 0))
+	box(lever_thr, 0.025, 0.16, 0.025, m["steel"], 0, 0.08, 0)
+	box(lever_thr, 0.07, 0.04, 0.05, m["black"], 0, 0.17, 0)
+	var rv := pivot(p, Vector3(0.22, desk_y + 0.04, 0.5))
+	box(rv, 0.06, 0.05, 0.12, m["console"], 0, 0, 0)
+	var rh := box(rv, 0.02, 0.09, 0.02, m["steel"], 0, 0.06, -0.03)
+	rh.rotation.x = -0.4
+	ball(rv, 0.018, m["black"], Vector3(0, 0.1, -0.05))
+	# alerter + switch strip on the desk top
+	cyl(p, 0.035, 0.035, 0.03, m["alerter"], Vector3(0.78, desk_y + 0.055, 0.5), 16)
+	box(p, 0.22, 0.03, 0.1, m["console"], 1.02, desk_y + 0.05, 0.5)
+	var sw_mats := [m["red"], m["steel"], m["steel"], m["alerter"]]
+	for i in 4:
+		box(p, 0.02, 0.025, 0.03, sw_mats[i], 0.94 + i * 0.05, desk_y + 0.075, 0.5)
+	# CCB brake stand on the right-hand wing: automatic (red knob) + independent
+	var bs := pivot(p, Vector3(1.33, desk_y + 0.09, 0.92))
+	box(bs, 0.3, 0.06, 0.5, m["console"], 0, 0, 0)
+	for z in [-0.12, 0.1]:
+		box(bs, 0.03, 0.005, 0.2, m["rubber"], 0, 0.033, z)
+	lever_auto = pivot(bs, Vector3(0, 0.03, -0.12))
+	box(lever_auto, 0.03, 0.17, 0.03, m["steel"], 0, 0.085, 0)
+	ball(lever_auto, 0.035, m["knob_red"], Vector3(0, 0.18, 0))
+	lever_ind = pivot(bs, Vector3(0, 0.03, 0.1))
+	box(lever_ind, 0.03, 0.14, 0.03, m["steel"], 0, 0.07, 0)
+	ball(lever_ind, 0.03, m["black"], Vector3(0, 0.15, 0))
+	quad(p, 0.22, 0.11, m["warn"], Vector3(1.53, desk_y + 0.25, 0.75), Vector3(0, -PI / 2.0, 0))
+	_radio(p, Vector3(1.47, 0.05, 1.75), Vector3(0, -PI / 2.0, 0))
+	# overhead consoles above the windshields
+	for ox in [-0.62, 0.62]:
+		var oc := pivot(p, Vector3(ox, 0.56, 0.62), Vector3(1.05, 0, 0))
+		box(oc, 1.0, 0.22, 0.24, m["wall"], 0, 0, 0)
+		quad(oc, 0.94, 0.2, m["switches"], Vector3(0, 0, 0.125), Vector3.ZERO)
+	# conductor's desk (left) with two screens and paperwork
+	box(p, 1.1, desk_y - floor_y, 0.6, m["desk"], -0.92, (desk_y + floor_y) / 2.0, 0.36)
+	box(p, 1.14, 0.04, 0.64, m["console"], -0.92, desk_y + 0.02, 0.36)
+	var cp := pivot(p, Vector3(-0.92, desk_y + 0.2, 0.14), Vector3(-0.3, 0, 0))
+	box(cp, 0.9, 0.34, 0.12, m["desk"], 0, 0, -0.04)
+	screen(cp, 0.3, 0.22, Vector3(-0.2, 0.0, 0.03), Vector3.ZERO, "ptc")
+	screen(cp, 0.3, 0.22, Vector3(0.18, 0.0, 0.03), Vector3.ZERO, "eng")
+	quad(p, 0.22, 0.3, m["paper"], Vector3(-0.85, desk_y + 0.045, 0.5), Vector3(-PI / 2.0, 0.15, 0))
+	_radio(p, Vector3(-1.45, -0.05, 1.5), Vector3(0, PI / 2.0, 0))
+	quad(p, 0.5, 0.25, m["bulletin"], Vector3(-1.52, 0.1, 2.1), Vector3(0, PI / 2.0, 0))
+	quad(p, 0.22, 0.11, m["fuel"], Vector3(0.6, 0.0, 2.68), Vector3(0, PI, 0))
+	cyl(p, 0.08, 0.08, 0.52, m["red"], Vector3(1.2, -0.95, 2.6), 12)
+	_seat(p, 0.86, floor_y, 1.25, m["seat"])
+	_seat(p, -0.86, floor_y, 1.25, m["seat"])
+	_seat(p, -0.86, floor_y, 2.1, m["seat"])
+	_mirrors(p, w / 2.0, -0.05)
+
+# ---------------------------------------------------------------- classic AAR-stand cab
+func _interior_classic(p: Node) -> void:
+	var w := 3.02
+	var floor_y := -1.35
+	var sill_y := -0.3
+	var top_y := 0.42
+	var beige: Material = m["wall_beige"]
+	_shell(p, w, 2.6, floor_y, 0.62, sill_y, top_y, [-0.82, 0.82], 0.95, beige, true)
+	box(p, 0.5, 0.3, 0.3, beige, 0, sill_y + 0.2, 0.12)
+	# AAR control stand to the engineer's left
+	var st := pivot(p, Vector3(0.3, 0, 0.62))
+	box(st, 0.36, -0.42 - floor_y, 0.55, beige, 0, (-0.42 + floor_y) / 2.0, 0)
+	box(st, 0.3, 0.32, 0.5, m["console"], 0.02, -0.25, -0.02)
+	quad(st, 0.48, 0.3, m["switches_beige"], Vector3(0.175, -0.25, -0.02), Vector3(0, PI / 2.0, 0))
+	var gh := pivot(st, Vector3(0.05, -0.02, -0.22), Vector3(-0.35, -0.55, 0))
+	box(gh, 0.62, 0.2, 0.08, m["black"], 0, 0, 0)
+	gauge(gh, "g_speed", 0.075, Vector3(-0.2, 0, 0.045), ["speed"], [Color(1, 1, 1)])
+	gauge(gh, "g_er", 0.075, Vector3(0, 0, 0.045), ["bp", "er"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	gauge(gh, "g_mr", 0.075, Vector3(0.2, 0, 0.045), ["mr", "bc"], [Color(1, 1, 1), Color(0.95, 0.15, 0.1)])
+	lever_thr = pivot(st, Vector3(0.2, -0.32, 0.0))
+	box(lever_thr, 0.28, 0.025, 0.025, m["steel"], 0.12, 0, 0)
+	box(lever_thr, 0.06, 0.035, 0.035, m["black"], 0.27, 0, 0)
+	lever_db = pivot(st, Vector3(0.2, -0.2, 0.12))
+	box(lever_db, 0.2, 0.02, 0.02, m["steel"], 0.09, 0, 0)
+	ball(lever_db, 0.022, m["black"], Vector3(0.2, 0, 0))
+	box(st, 0.06, 0.03, 0.12, m["steel"], 0.21, -0.42, -0.1)
+	var al := cyl(st, 0.03, 0.03, 0.03, m["alerter"], Vector3(0.19, -0.1, -0.2), 14)
+	al.rotation.z = PI / 2.0
+	# 26L brake valve on its pedestal, ahead-left of the engineer's seat
+	var bv := pivot(p, Vector3(0.42, 0, 1.0))
+	cyl(bv, 0.08, 0.1, -0.72 - floor_y, m["console"], Vector3(0, (-0.72 + floor_y) / 2.0, 0), 12)
+	box(bv, 0.26, 0.14, 0.26, m["console"], 0, -0.66, 0)
+	lever_auto = pivot(bv, Vector3(0, -0.57, 0))
+	box(lever_auto, 0.03, 0.03, 0.32, m["steel"], 0, 0, -0.16)
+	ball(lever_auto, 0.03, m["black"], Vector3(0, 0, -0.32))
+	lever_ind = pivot(bv, Vector3(0, -0.52, 0))
+	box(lever_ind, 0.025, 0.025, 0.26, m["steel"], 0, 0, -0.13)
+	var pk := cyl(lever_ind, 0.022, 0.022, 0.1, m["knob_pink"], Vector3(0, 0, -0.27), 10)
+	pk.rotation.x = PI / 2.0
+	box(p, 0.4, 0.55, 0.3, m["steel_dark"], 1.15, floor_y + 0.28, 0.35)
+	_radio(p, Vector3(-0.95, sill_y - 0.15, 0.12), Vector3.ZERO)
+	quad(p, 0.22, 0.11, m["warn"], Vector3(-0.3, sill_y - 0.25, 0.06), Vector3.ZERO)
+	box(p, 0.9, 0.04, 0.4, beige, -0.95, -0.72, 0.3)
+	quad(p, 0.2, 0.27, m["paper"], Vector3(-0.9, -0.69, 0.32), Vector3(-PI / 2.0, 0.1, 0))
+	_seat(p, 0.8, floor_y, 1.3, m["seat"])
+	_seat(p, -0.8, floor_y, 1.3, m["seat"])
+	_mirrors(p, w / 2.0, -0.05)
+
+func _mirrors(p: Node, half_w: float, y: float) -> void:
 	for side in [-1.0, 1.0]:
-		var mg := Node3D.new()
-		mg.position = Vector3(side * (half_w + 0.18), -0.05, 0.22)
-		p.add_child(mg)
+		var mg := pivot(p, Vector3(side * (half_w + 0.18), y, 0.22))
 		tube(mg, Vector3(-side * 0.18, 0.26, 0), Vector3(0, 0.26, 0), 0.016, m["mirror_frame"])
 		tube(mg, Vector3(-side * 0.18, -0.26, 0), Vector3(0, -0.26, 0), 0.016, m["mirror_frame"])
 		var housing := box(mg, 0.14, 0.54, 0.045, m["mirror_frame"], 0, 0, 0)
 		housing.rotation.y = side * -0.34
-		var g2 := quad(mg, 0.115, 0.5, m["mirror_glass"], Vector3(0, 0, 0.025), Vector3(0, side * -0.34, 0))
-		g2.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		quad(mg, 0.115, 0.5, m["mirror_glass"], Vector3(0, 0, 0.025), Vector3(0, side * -0.34, 0))
 
-## Called every frame with the game state so levers and screens move.
-func update(lever: int, auto_h: float, ind_h: float, emergency: bool, mph: int, limit: int, bp: float, bc: float, next_txt: String) -> void:
-	if lever_thr:
-		lever_thr.rotation.x = -(float(lever) / 8.0) * 0.45
-	if lever_auto:
-		lever_auto.rotation.x = (1.0 if emergency else auto_h) * 0.6
-	if lever_ind:
-		lever_ind.rotation.x = ind_h * 0.6
-	if ptc_label:
-		ptc_label.text = "PTC  %d / %d MPH\n%s" % [mph, limit, next_txt]
-	if gauge_label:
-		var lv := "N%d" % lever if lever > 0 else ("IDLE" if lever == 0 else ("SETUP" if lever == -1 else "DB%d" % (-lever - 1)))
-		gauge_label.text = "BP %d\nBC %d\n%s" % [int(bp), int(bc), lv]
+# ================================================================ per-frame
+func update(s: Dictionary) -> void:
+	var lever: int = s["lever"]
+	var auto_h: float = s["auto_h"]
+	var ind_h: float = s["ind_h"]
+	var em: bool = s["emergency"]
+	if model == "classic":
+		if lever_thr:
+			lever_thr.rotation.y = float(maxi(lever, 0)) / 8.0 * 0.9
+		if lever_db:
+			lever_db.rotation.y = float(maxi(-lever - 1, 0)) / 8.0 * 0.9
+		if lever_auto:
+			lever_auto.rotation.y = -(1.25 if em else auto_h * 1.1)
+		if lever_ind:
+			lever_ind.rotation.y = -ind_h * 1.0
+	else:
+		if lever_thr:
+			lever_thr.rotation.x = -float(lever) / 9.0 * 0.6
+		if lever_auto:
+			lever_auto.rotation.x = (1.0 if em else auto_h) * 0.75
+		if lever_ind:
+			lever_ind.rotation.x = ind_h * 0.7
+	set_needle("speed", float(s["mph"]), 80.0)
+	set_needle("er", s["er"], 160.0)
+	set_needle("bp", s["bp"], 160.0)
+	set_needle("mr", 140.0, 160.0)
+	set_needle("bc", s["bc"], 160.0)
+	if ui.is_empty():
+		return
+	var mph: int = s["mph"]
+	ui["e_title"].text = ("LOCO 2271   GP38-2" if model == "classic" else "LOCO 8062   ES44AC") + "   MAIN"
+	ui["e_speed"].text = str(mph)
+	ui["e_lever"].text = s["lever_name"]
+	ui["e_te"].text = "%d kN" % int(s["te_kn"])
+	ui["e_te_bar"].size.x = 296.0 * clampf(s["te_kn"] / 430.0, 0.0, 1.0)
+	ui["e_db"].text = "%d kN" % int(s["db_kn"])
+	ui["e_db_bar"].size.x = 296.0 * clampf(s["db_kn"] / 300.0, 0.0, 1.0)
+	ui["e_air1"].text = "EQ RES %d   BRK PIPE %d   MAIN RES 140" % [int(s["er"]), int(s["bp"])]
+	ui["e_air2"].text = "BRK CYL %d   LOCO CYL %d   FLOW %d" % [int(s["bc"]), int(s["lbc"]), int(s["flow"])]
+	var flags := ""
+	if em:
+		flags += "EMERGENCY  "
+	if s["alert"]:
+		flags += "ALERTER  "
+	if s["sand"]:
+		flags += "SAND  "
+	if s["bell"]:
+		flags += "BELL"
+	ui["e_flags"].text = flags
+	ui["p_speed"].text = str(mph)
+	ui["p_limit"].text = str(s["limit"])
+	var nft: float = s["next_ft"]
+	if nft >= 0.0:
+		ui["p_target"].text = s["next_kind"]
+		ui["p_target2"].text = "%d FT" % int(nft)
+		ui["p_marker"].position.x = 16.0 + 474.0 * clampf(nft / 10560.0, 0.0, 1.0)
+		ui["p_marker"].visible = true
+		ui["p_next"].text = "%s  %d FT" % [s["next_kind"], int(nft)]
+		ui["p_next2"].text = s["next_txt"]
+	else:
+		ui["p_target"].text = "--"
+		ui["p_target2"].text = ""
+		ui["p_marker"].visible = false
+		ui["p_next"].text = "NO WORK AHEAD"
+		ui["p_next2"].text = ""
+	ui["p_warn"].text = "OVERSPEED" if mph > int(s["limit"]) + 2 else ""

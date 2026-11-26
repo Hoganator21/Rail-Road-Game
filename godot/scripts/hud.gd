@@ -17,12 +17,10 @@ var toast_lbl: Label
 var toast_t: float = 0.0
 var btn_line: Button
 var btn_zoom: Button
-var sl_lever: VSlider
-var sl_auto: VSlider
-var sl_ind: VSlider
-var lbl_lever: Label
-var lbl_auto: Label
-var lbl_ind: Label
+const Quadrant = preload("res://scripts/quadrant.gd")
+var q_thr
+var q_auto
+var q_ind
 var btn_bell: Button
 var btn_sand: Button
 var alert_lbl: Label
@@ -35,6 +33,7 @@ var over_msg: Label
 var over_score: Label
 var best_start_lbl: Label
 var ym_panel: PanelContainer
+var loco_btns: Array = []
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -228,21 +227,34 @@ func _build_controls() -> void:
 		row.add_child(b)
 	col.add_child(row)
 	var levers := HBoxContainer.new()
-	levers.add_theme_constant_override("separation", 14)
+	levers.add_theme_constant_override("separation", 6)
 	levers.alignment = BoxContainer.ALIGNMENT_CENTER
-	sl_lever = _lever(Color(0.3, 0.75, 0.4), -9, 8, 1, func(v): game.set_lever(int(v)))
-	sl_auto = _lever(Color(0.85, 0.3, 0.25), 0, 100, 1, func(v): game.set_auto((100.0 - v) / 100.0 * 0.86))
-	sl_ind = _lever(Color(0.3, 0.5, 0.9), 0, 100, 1, func(v): game.set_ind((100.0 - v) / 100.0))
-	sl_auto.value = 100
-	sl_ind.value = 100
-	var c1 := _lever_col("THROTTLE", sl_lever, "N8", "DB8")
-	var c2 := _lever_col("AUTO BRK", sl_auto, "REL", "FULL")
-	var c3 := _lever_col("IND BRK", sl_ind, "REL", "FULL")
-	lbl_lever = c1[1]
-	lbl_auto = c2[1]
-	lbl_ind = c3[1]
-	for c in [c1[0], c2[0], c3[0]]:
-		levers.add_child(c)
+	# throttle / dynamic brake: 18 detents, N8 at the top, B8 at the bottom
+	q_thr = Quadrant.new()
+	q_thr.title = "THROTTLE"
+	q_thr.snap = true
+	q_thr.knob = Color(0.1, 0.1, 0.1)
+	var names := ["8", "7", "6", "5", "4", "3", "2", "1", "IDLE", "SETUP", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
+	for k in names.size():
+		q_thr.stops.append([names[k], float(k) / 17.0])
+	q_thr.zones = [[0.0, 7.0 / 17.0, Color(0.2, 0.7, 0.3)], [10.0 / 17.0, 1.0, Color(0.95, 0.6, 0.15)]]
+	q_thr.moved.connect(func(v): game.set_lever(8 - int(round(v * 17.0))))
+	# automatic brake: release, minimum, service zone, full service, emergency
+	q_auto = Quadrant.new()
+	q_auto.title = "AUTO BRAKE"
+	q_auto.knob = Color(0.72, 0.1, 0.08)
+	q_auto.stops = [["REL", 0.0], ["MIN", 0.12], ["SVC", 0.45], ["FULL", 0.78], ["EMERG", 1.0]]
+	q_auto.zones = [[0.12, 0.78, Color(0.85, 0.75, 0.2)], [0.9, 1.0, Color(0.9, 0.15, 0.1)]]
+	q_auto.moved.connect(_auto_moved)
+	# independent brake
+	q_ind = Quadrant.new()
+	q_ind.title = "IND BRAKE"
+	q_ind.knob = Color(0.15, 0.15, 0.15)
+	q_ind.stops = [["REL", 0.0], ["", 0.5], ["FULL", 1.0]]
+	q_ind.zones = [[0.0, 1.0, Color(0.3, 0.5, 0.9)]]
+	q_ind.moved.connect(func(v): game.set_ind(v))
+	for q in [q_thr, q_auto, q_ind]:
+		levers.add_child(q)
 	col.add_child(levers)
 	var em := _button("EMERGENCY", Vector2(0, 54), func(): game.emergency_brake(), Color(0.7, 0.05, 0.05, 0.95), 22)
 	col.add_child(em)
@@ -260,6 +272,16 @@ func _build_controls() -> void:
 	_anchor(btn_line, Control.PRESET_CENTER_BOTTOM, -150, -20, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BEGIN)
 	btn_line.visible = false
 	root.add_child(btn_line)
+
+func _auto_moved(v: float) -> void:
+	if v > 0.9:
+		game.emergency_brake()
+	elif v < 0.05:
+		game.set_auto(0.0)
+	elif v < 0.12:
+		game.set_auto(0.06)
+	else:
+		game.set_auto(0.06 + (v - 0.12) / 0.66 * 0.8)
 
 func _look_ahead() -> void:
 	game.look_yaw = 0.0
@@ -289,7 +311,7 @@ func _overlay() -> Array:
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	c.add_child(p)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
+	v.add_theme_constant_override("separation", 8)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	p.add_child(v)
 	root.add_child(bg)
@@ -299,16 +321,16 @@ func _build_start() -> void:
 	var o := _overlay()
 	start_panel = o[0]
 	var v: VBoxContainer = o[1]
-	var t := _label(54, Color(1, 0.8, 0.2))
+	var t := _label(40, Color(1, 0.8, 0.2))
 	t.text = "SWITCH CHALLENGE"
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	var sub := _label(22, Color(0.8, 0.85, 0.95))
+	var sub := _label(18, Color(0.8, 0.85, 0.95))
 	sub.text = "Endless main line  -  read the switches, follow the yardmaster"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sub)
-	var how := _label(19)
-	how.custom_minimum_size = Vector2(760, 0)
+	var how := _label(15)
+	how.custom_minimum_size = Vector2(900, 0)
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	how.text = "- Switch target: GREEN = lined for the MAIN, RED = lined for the siding/spur.\n" \
 		+ "- Targets can be knocked wrong. ZOOM and check which point is closed.\n" \
@@ -324,9 +346,27 @@ func _build_start() -> void:
 	best_start_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	best_start_lbl.text = "Best score: %d" % game.best
 	v.add_child(best_start_lbl)
-	var b := _button("DEPART", Vector2(300, 90), func(): game.start_game(), Color(0.1, 0.45, 0.2, 0.95), 34)
+	var pick := HBoxContainer.new()
+	pick.alignment = BoxContainer.ALIGNMENT_CENTER
+	pick.add_theme_constant_override("separation", 12)
+	loco_btns = []
+	for opt in [["modern", "MODERN WIDE CAB\nES44AC - desktop"], ["classic", "CLASSIC HOOD UNIT\nGP38-2 - AAR stand"]]:
+		var kind: String = opt[0]
+		var lb := _button(opt[1], Vector2(280, 62), func(): _pick_loco(kind), Color(0.15, 0.22, 0.35, 0.95), 17)
+		lb.set_meta("kind", kind)
+		loco_btns.append(lb)
+		pick.add_child(lb)
+	v.add_child(pick)
+	_pick_loco(game.loco_model)
+	var b := _button("DEPART", Vector2(280, 66), func(): game.start_game(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
+
+func _pick_loco(kind: String) -> void:
+	game.set_loco(kind)
+	for lb in loco_btns:
+		var on: bool = lb.get_meta("kind") == kind
+		lb.add_theme_stylebox_override("normal", _style(Color(0.85, 0.55, 0.1, 0.95) if on else Color(0.15, 0.22, 0.35, 0.95), 12, Color(1, 1, 1, 0.5 if on else 0.25)))
 
 func _build_over() -> void:
 	var o := _overlay()
@@ -402,12 +442,15 @@ func refresh() -> void:
 		ftxt += "   BELL"
 	force_lbl.text = ftxt
 	alert_lbl.visible = g.running and g.alert_t > g.ALERT_WARN and int(g.time_s * 3) % 2 == 0
-	sl_lever.set_value_no_signal(g.lever)
-	sl_auto.set_value_no_signal(100.0 - (1.0 if g.emergency else g.auto_h / 0.86) * 100.0)
-	sl_ind.set_value_no_signal(100.0 - g.ind_h * 100.0)
-	lbl_lever.text = g.lever_name()
-	lbl_auto.text = "EMERG" if g.emergency else ("REL" if g.auto_h < 0.03 else ("FULL" if g.auto_h >= 0.85 else "%d LB" % int(90.0 - g._er_target(g.auto_h))))
-	lbl_ind.text = "%d PSI" % int(g.ind_h * 45.0)
+	q_thr.set_t(float(8 - g.lever) / 17.0)
+	q_thr.value_text = g.lever_name()
+	var ah: float = g.auto_h
+	q_auto.set_t(1.0 if g.emergency else (0.0 if ah < 0.03 else 0.12 + (ah - 0.06) / 0.8 * 0.66))
+	q_auto.value_text = "EMERG" if g.emergency else ("REL" if ah < 0.03 else ("FULL" if ah >= 0.85 else "%d LB" % int(90.0 - g._er_target(ah))))
+	q_ind.set_t(g.ind_h)
+	q_ind.value_text = "%d PSI" % int(g.lbc_psi)
+	for q in [q_thr, q_auto, q_ind]:
+		q.queue_redraw()
 	btn_bell.text = "BELL\nON" if g.bell else "BELL"
 	btn_sand.text = "SAND\nON" if g.sand else "SAND"
 	score_lbl.text = "SCORE %d" % int(g.score)
