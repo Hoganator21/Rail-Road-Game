@@ -65,6 +65,7 @@ func _ready() -> void:
 	_build_start()
 	_build_over()
 	_build_pause()
+	start_panel.visible = false     # replaced by the title screen menus
 	for panel in [start_panel, over_panel, pause_panel]:
 		_pad_focusable(panel)
 	Input.joy_connection_changed.connect(func(_dev, connected):
@@ -533,9 +534,12 @@ func _build_over() -> void:
 	over_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for l in [over_title, over_msg, over_score]:
 		v.add_child(l)
-	var b := _button("RUN AGAIN", Vector2(300, 90), func(): game.restart(), Color(0.1, 0.45, 0.2, 0.95), 32)
+	var b := _button("RUN AGAIN", Vector2(300, 80), func(): game.restart(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
+	var mm := _button("MAIN MENU", Vector2(300, 60), func(): game.go_to_main_menu(), Color(0.2, 0.22, 0.3, 0.95), 22)
+	mm.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(mm)
 	over_panel.visible = false
 
 func _build_pause() -> void:
@@ -549,6 +553,12 @@ func _build_pause() -> void:
 	var b := _button("RESUME", Vector2(280, 84), func(): game.toggle_pause(), Color(0.1, 0.45, 0.2, 0.95), 30)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(b)
+	var sv := _button("SAVE GAME", Vector2(280, 60), func(): game.save_run(), Color(0.15, 0.3, 0.45, 0.95), 22)
+	sv.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(sv)
+	var mm := _button("MAIN MENU", Vector2(280, 60), func(): game.go_to_main_menu(), Color(0.2, 0.22, 0.3, 0.95), 22)
+	mm.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(mm)
 	q_btn_pause = _button("", Vector2(280, 56), func(): game.cycle_quality(); _upd_q(), Color(0.2, 0.2, 0.24, 0.95), 20)
 	q_btn_pause.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(q_btn_pause)

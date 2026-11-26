@@ -7,6 +7,7 @@ const WHISTLE_POST := 400.0   # metres before the crossing (about 1/4 mile)
 const ROAD_HALF := 4.0        # half road width
 const LANE := 1.9             # lane centre offset from road centre line
 
+var bus_name := "Master"
 var art
 var game
 var list: Array = []          # one Dictionary per crossing
@@ -108,6 +109,7 @@ func add(parent: Node3D, dc: float, road_name: String, srng: RandomNumberGenerat
 	for dir in [1.0, -1.0]:
 		_signal(g, c, Vector3(-dir * 6.2, 0.0, z + dir * (ROAD_HALF + 1.4)), dir)
 	var bell := AudioStreamPlayer3D.new()
+	bell.bus = bus_name
 	bell.stream = bell_stream
 	bell.position = Vector3(-6.0, 4.0, z + ROAD_HALF + 1.4)
 	bell.unit_size = 12.0

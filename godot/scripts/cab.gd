@@ -127,6 +127,7 @@ func _materials() -> void:
 	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m["glass"] = glass
+	m["glass_dark"] = _mat(Color(0.05, 0.07, 0.09), 0.08, 0.6)
 	var gg: StandardMaterial3D = glass.duplicate()
 	gg.albedo_color = Color(0.8, 0.85, 0.9, 0.035)
 	m["gauge_glass"] = gg
@@ -350,7 +351,10 @@ func _build_ptc(root: Control) -> void:
 var has_db: bool = true
 var pickables: Array = []
 
-func build(kind: String, dyn_brake: bool = true) -> Node3D:
+var exterior_only := false
+
+func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> Node3D:
+	exterior_only = outside_only
 	model = kind
 	has_db = dyn_brake
 	pickables.clear()
@@ -367,16 +371,34 @@ func build(kind: String, dyn_brake: bool = true) -> Node3D:
 			_exterior_lhf(L)
 		else:
 			_exterior_classic(L)
-		_interior_classic(L, kind == "classic")
+		if not exterior_only:
+			_interior_classic(L, kind == "classic")
+		else:
+			_cab_box(L, 3.02, 2.6)
 	elif kind == "sd70ace":
 		eye = Vector3(0.86, 0.0, 1.12)
 		_exterior_modern(L)
-		_interior_aar(L)
+		if not exterior_only:
+			_interior_aar(L)
+		else:
+			_cab_box(L, 3.16, 2.8)
 	else:
 		eye = Vector3(0.86, 0.0, 1.08)
 		_exterior_modern(L)
-		_interior_modern(L)
+		if not exterior_only:
+			_interior_modern(L)
+		else:
+			_cab_box(L, 3.16, 2.75)
 	return L
+
+## Trailing units seen from outside only need the cab's outer shell and windows.
+func _cab_box(L: Node, w: float, cab_len: float) -> void:
+	box(L, w, 2.05, cab_len, m["hood"], 0, -0.33, cab_len / 2.0)
+	box(L, w + 0.08, 0.14, cab_len + 0.2, m["paint"], 0, 0.75, cab_len / 2.0 - 0.05)
+	for x in [-0.76, 0.76]:
+		box(L, 1.2, 0.75, 0.02, m["glass_dark"], x, 0.05, -0.01)
+	for sx in [-1.0, 1.0]:
+		box(L, 0.02, 0.7, 1.2, m["glass_dark"], sx * (w / 2.0 + 0.005), 0.05, 0.95)
 
 # ---------------------------------------------------------------- exteriors
 func _deck_and_ends(L: Node, w: float, front_len: float, rear_len: float, deck_y: float) -> void:

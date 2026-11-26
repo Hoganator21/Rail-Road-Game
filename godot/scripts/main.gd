@@ -20,7 +20,7 @@ const DIV_LIMIT_MPH := 25.0
 const MPH := 2.23694
 const CAR_LEN := 16.0
 const LINE_RANGE := 160.0    # must be stopped within this many metres to line a switch
-const BEHIND_KEEP := 450.0
+var BEHIND_KEEP := 450.0     # how much world to keep behind the front (more on the title screen)
 const AHEAD_BUILD := 1600.0
 const AHEAD_EVENTS := 2600.0
 # ---------------------------------------------------------------- train consist
@@ -228,9 +228,19 @@ func _ready() -> void:
 	hud = preload("res://scripts/hud.gd").new()
 	hud.game = self
 	add_child(hud)
+	cine = preload("res://scripts/cinematic.gd").new()
+	add_child(cine)
+	cine.setup(self)
+	title = preload("res://scripts/title.gd").new()
+	title.game = self
+	add_child(title)
+	_setup_audio_buses()
+	_apply_settings()
 	reset_world()
-	if autopilot != "" or (shot_dir != "" and not OS.get_cmdline_user_args().has("--menu")):
+	if autopilot != "" or (shot_dir != "" and not "--title" in OS.get_cmdline_user_args()):
 		start_game()
+	else:
+		enter_title()
 	if jump_xing >= 0.0:
 		var guard := 0
 		while xings.list.is_empty() and guard < 40:
@@ -343,7 +353,7 @@ func _make_cab() -> void:
 	pivot.position = Vector3(0.85, EYE_H, 0.0)
 	cab.add_child(pivot)
 	cam = Camera3D.new()
-	cam.fov = 70.0
+	cam.fov = cab_fov()
 	cam.near = 0.05
 	cam.far = 3000.0
 	pivot.add_child(cam)
@@ -404,8 +414,10 @@ func set_consist(key: String, value) -> void:
 	consist["units"] = clampi(int(consist["units"]), 1, 4)
 	_apply_consist()
 	_save_best()
-	if not running:
+	if not running and not title_mode:
 		reset_world()
+	if title_mode and key == "units":
+		cine.build_train()
 
 func consist_text() -> String:
 	var dpu: String = consist["dpu"]
@@ -447,6 +459,8 @@ func set_loco(kind: String) -> void:
 	_save_best()
 	_build_cab_model()
 	hud.configure_controls()
+	if title_mode:
+		cine.build_train()
 
 func set_classic_db(on: bool) -> void:
 	classic_db = on
@@ -454,8 +468,8 @@ func set_classic_db(on: bool) -> void:
 	_build_cab_model()
 	hud.configure_controls()
 
-func cycle_quality() -> void:
-	art.apply_quality((art.quality + 1) % 4)
+func cycle_quality(dir: int = 1) -> void:
+	art.apply_quality((art.quality + dir + 4) % 4)
 	_save_best()
 	# rebuild scenery so tree density matches the new setting
 	for k in chunks.keys():
@@ -534,7 +548,7 @@ func reset_world() -> void:
 	recentre = false
 	look_yaw = 0.0
 	look_pitch = -0.05
-	cam.fov = 70.0
+	cam.fov = cab_fov()
 	_stream()
 	_place_cab(0.0)
 
@@ -559,7 +573,10 @@ func toggle_pause() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		toggle_pause()
+		if title_mode:
+			title.back()
+		else:
+			toggle_pause()
 	elif what == NOTIFICATION_APPLICATION_PAUSED and running and not game_over and not paused:
 		toggle_pause()
 
@@ -721,7 +738,7 @@ func _look(rel: Vector2) -> void:
 	recentre = false
 
 func _set_zoom_fov(f: float) -> void:
-	zoom_fov = clampf(f, 4.0, 70.0)
+	zoom_fov = clampf(f, 4.0, cab_fov())
 	zoomed = zoom_fov < 66.0
 	if not zoomed:
 		recentre = false
@@ -769,6 +786,8 @@ func _pad_input(event: InputEvent) -> bool:
 			if btn == JOY_BUTTON_Y:
 				pad_y_t = -1.0
 			return true
+		if title_mode:
+			return false
 		if btn == JOY_BUTTON_START:
 			if game_over:
 				restart()
@@ -900,9 +919,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
 			dragging = event.pressed
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_set_zoom_fov((zoom_fov if zoomed else 70.0) - 6.0)
+			_set_zoom_fov((zoom_fov if zoomed else cab_fov()) - 6.0)
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_set_zoom_fov((zoom_fov if zoomed else 70.0) + 6.0)
+			_set_zoom_fov((zoom_fov if zoomed else cab_fov()) + 6.0)
 	elif event is InputEventMouseMotion:
 		if dragging and event.device != -1:
 			_look(event.relative)
@@ -922,7 +941,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			var p1: Vector2 = touches[keys[1]]
 			var dist := p0.distance_to(p1)
 			if pinch_prev > 0.0:
-				_set_zoom_fov((zoom_fov if zoomed else 70.0) + (pinch_prev - dist) * 0.12)
+				_set_zoom_fov((zoom_fov if zoomed else cab_fov()) + (pinch_prev - dist) * 0.12)
 			pinch_prev = dist
 
 # ================================================================ main loop
@@ -933,6 +952,13 @@ func _process(delta: float) -> void:
 		return
 	time_s += delta
 	_pad_process(delta)
+	if fps_label:
+		fps_label.visible = bool(settings["show_fps"])
+		fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+	if title_mode:
+		_title_process(delta)
+		_shots()
+		return
 	if autopilot != "":
 		_autopilot(delta)
 	if running and not game_over:
@@ -965,6 +991,9 @@ func _process(delta: float) -> void:
 		"rear_turnout": rear_on_turnout()})
 	_update_sound(delta)
 	hud.refresh()
+	_shots()
+
+func _shots() -> void:
 	if shot_dir != "":
 		if not zoom_times.is_empty() and time_s >= zoom_times[0]:
 			zoom_times.pop_front()
@@ -1303,6 +1332,10 @@ func _end_game(title: String, msg: String) -> void:
 		print("AUTOTEST END: %s - %s (at %.0f m, %d mph)" % [title, msg, front_d, int(speed * MPH)])
 	lining_sw = null
 	var final := int(score)
+	profile["runs"] = int(profile["runs"]) + 1
+	profile["miles"] = float(profile["miles"]) + front_d / 1609.34
+	DirAccess.remove_absolute(RUN_SAVE)
+	_save_best()
 	var new_best := final > best
 	if new_best:
 		best = final
@@ -1316,8 +1349,12 @@ func _load_best() -> void:
 		loco_model = str(cf.get_value("settings", "loco", "modern"))
 		classic_db = bool(cf.get_value("settings", "classic_db", false))
 		art.quality = int(cf.get_value("settings", "quality", art.quality))
-		var c = cf.get_value("settings", "consist", null)
-		if c is Dictionary:
+		for k in settings.keys():
+			settings[k] = cf.get_value("options", k, settings[k])
+		for k in profile.keys():
+			profile[k] = cf.get_value("profile", k, profile[k])
+		var c = cf.get_value("settings", "consist", {})
+		if c is Dictionary and not c.is_empty():
 			for k in consist.keys():
 				if c.has(k):
 					consist[k] = c[k]
@@ -1329,6 +1366,10 @@ func _save_best() -> void:
 	cf.set_value("settings", "classic_db", classic_db)
 	cf.set_value("settings", "quality", art.quality)
 	cf.set_value("settings", "consist", consist)
+	for k in settings.keys():
+		cf.set_value("options", k, settings[k])
+	for k in profile.keys():
+		cf.set_value("profile", k, profile[k])
 	cf.save("user://save.cfg")
 
 func yardmaster_info() -> Array:
@@ -1391,7 +1432,7 @@ func _place_cab(delta: float) -> void:
 	far_ring.position = Vector3(0.0, 0.0, -front_d)
 
 func _update_camera(delta: float) -> void:
-	var tfov := zoom_fov if zoomed else 70.0
+	var tfov := zoom_fov if zoomed else cab_fov()
 	cam.fov = lerpf(cam.fov, tfov, 1.0 - exp(-8.0 * delta))
 	if zoomed and aim_sw != null:
 		var aim_d: float = aim_sw.d + (3.0 if aim_sw.facing else -3.0)
@@ -1476,6 +1517,12 @@ func _gen_event() -> void:
 		ev.d_out = ev.start + TL + rng.randf_range(150.0, 230.0)
 		ev.end = ev.d_out
 		_add_switch(ev, ev.d_out, false, false, p_wrong * 0.9, p_lie)
+	if title_mode:
+		ev.required_siding = false
+		for sw in ev.switches:
+			sw.reversed = false
+			sw.orig_reversed = false
+			sw.lies = false
 	ev.name = PLACE_NAMES[rng.randi() % PLACE_NAMES.size()]
 	events.append(ev)
 	_build_event_visuals(ev)
@@ -1765,7 +1812,10 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 			if d > ev.start - 25.0 and d < ev.end + 25.0 and signf(x) == ev.side and absf(x) < OFF + 32.0:
 				return true
 		return false
-	art.foliage(node, c0, c1, blocked, art.foliage_density(), srng)
+	var zone := zone_at(i)
+	var zdens := {"woods": 1.7, "fields": 0.45, "farm": 0.55, "town": 0.35, "residential": 0.75, "industrial": 0.3}
+	art.foliage(node, c0, c1, blocked, art.foliage_density() * float(zdens[zone]), srng)
+	_zone_buildings(node, i, c0, c1, zone, blocked, srng)
 	art.pole_line(node, c0, c1, -9.5, func(pd: float) -> bool: return crossing_d > 0.0 and absf(pd - crossing_d) < 8.0)
 	# ---- mileposts
 	var m := int(ceil(c0 / 1609.34))
@@ -1790,6 +1840,58 @@ func _build_scenery(node: Node3D, i: int, c0: float, c1: float, overlapping: Arr
 		m += 1
 	if crossing_d > 0.0:
 		_build_crossing(node, crossing_d, srng)
+
+## Scenery runs in stretches of a few chunks: woods, open fields, farms,
+## small towns, residential edges and industrial areas.
+const ZONES := ["woods", "fields", "farm", "residential", "town", "industrial", "fields", "woods", "farm"]
+func zone_at(i: int) -> String:
+	if i < 2:
+		return "fields"
+	var block := int(floor(i / 3.0))
+	var h := absi(hash(block * 92821 + 7))
+	return ZONES[h % ZONES.size()]
+
+func _zone_buildings(node: Node3D, i: int, c0: float, c1: float, zone: String, blocked: Callable, srng: RandomNumberGenerator) -> void:
+	var free := func(x: float, d: float, r: float) -> bool:
+		for k in [-r, 0.0, r]:
+			if blocked.call(x + k, d) or blocked.call(x, d + k):
+				return false
+		return true
+	match zone:
+		"residential":
+			for side in [-1.0, 1.0]:
+				var d := c0 + srng.randf_range(5.0, 20.0)
+				while d < c1 - 10.0:
+					var x: float = side * srng.randf_range(26.0, 34.0)
+					if free.call(x, d, 9.0):
+						art.house(node, x, d, srng)
+						if srng.randf() < 0.6 and free.call(side * 52.0, d, 9.0):
+							art.house(node, side * srng.randf_range(48.0, 58.0), d + srng.randf_range(-6.0, 6.0), srng)
+					d += srng.randf_range(16.0, 24.0)
+		"town":
+			var side := 1.0 if (i % 2 == 0) else -1.0
+			if free.call(side * 24.0, c0 + 125.0, 30.0):
+				art.storefronts(node, side * 22.0, c0 + 15.0, c1 - 15.0, srng)
+			var d2 := c0 + 20.0
+			while d2 < c1 - 10.0:
+				if free.call(-side * 30.0, d2, 9.0):
+					art.house(node, -side * srng.randf_range(28.0, 36.0), d2, srng)
+				d2 += srng.randf_range(18.0, 26.0)
+			if i % 3 == 0 and free.call(-side * 60.0, c0 + 120.0, 10.0):
+				art.water_tower(node, -side * 60.0, c0 + 120.0, PLACE_NAMES[absi(hash(i)) % PLACE_NAMES.size()])
+			elif i % 3 == 1 and free.call(side * 70.0, c0 + 90.0, 12.0):
+				art.church(node, side * 70.0, c0 + 90.0)
+		"farm":
+			var fs := -1.0 if srng.randf() < 0.5 else 1.0
+			var fx := fs * srng.randf_range(70.0, 110.0)
+			if free.call(fx, c0 + 125.0, 20.0):
+				art.farmstead(node, fx, c0 + 125.0, srng)
+		"industrial":
+			var is_ := -1.0 if srng.randf() < 0.5 else 1.0
+			if free.call(is_ * 45.0, c0 + 120.0, 30.0):
+				art.factory(node, is_ * 48.0, c0 + 120.0, srng)
+		_:
+			pass
 
 func _build_crossing(node: Node3D, dc: float, srng: RandomNumberGenerator) -> void:
 	xings.add(node, dc, ROAD_NAMES[srng.randi() % ROAD_NAMES.size()], srng)
@@ -1868,3 +1970,180 @@ func _autopilot(delta: float) -> void:
 		lever = 3
 		auto_h = 0.0
 		ind_h = 0.0
+
+
+# ================================================================ title screen, settings, profile, saves
+const RUN_SAVE := "user://run.cfg"
+var title_mode := false
+var cine
+var title
+var fps_label: Label
+var settings := {"vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
+var profile := {"name": "Engineer", "runs": 0, "miles": 0.0}
+var run_seed := 0
+
+func cab_fov() -> float:
+	return float(settings["fov"])
+
+func _setup_audio_buses() -> void:
+	for b in ["Engine", "Horn", "Ambient"]:
+		if AudioServer.get_bus_index(b) == -1:
+			AudioServer.add_bus()
+			var i := AudioServer.bus_count - 1
+			AudioServer.set_bus_name(i, b)
+			AudioServer.set_bus_send(i, "Master")
+	snd.assign_buses()
+	xings.bus_name = "Ambient"
+	fps_label = Label.new()
+	fps_label.add_theme_font_size_override("font_size", 14)
+	fps_label.position = Vector2(8, 4)
+	fps_label.visible = false
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	layer.add_child(fps_label)
+	add_child(layer)
+
+func _bus_vol(bus: String, v: float) -> void:
+	var i := AudioServer.get_bus_index(bus)
+	if i >= 0:
+		AudioServer.set_bus_volume_db(i, linear_to_db(maxf(v, 0.0001)))
+
+func _apply_settings() -> void:
+	_bus_vol("Master", settings["vol_master"])
+	# outside the cab on the title screen the locomotive is heard from a distance
+	_bus_vol("Engine", float(settings["vol_engine"]) * (0.3 if title_mode else 1.0))
+	_bus_vol("Horn", float(settings["vol_horn"]) * (0.7 if title_mode else 1.0))
+	_bus_vol("Ambient", settings["vol_ambient"])
+	if not OS.has_feature("mobile") and DisplayServer.get_name() != "headless":
+		var want := DisplayServer.WINDOW_MODE_FULLSCREEN if settings["fullscreen"] else DisplayServer.WINDOW_MODE_WINDOWED
+		if DisplayServer.window_get_mode() != want and (settings["fullscreen"] or DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN):
+			DisplayServer.window_set_mode(want)
+	if not zoomed and not title_mode:
+		cam.fov = cab_fov()
+
+func set_setting(key: String, v) -> void:
+	settings[key] = v
+	_apply_settings()
+	_save_best()
+
+func set_profile_name(n: String) -> void:
+	profile["name"] = n.strip_edges() if n.strip_edges() != "" else "Engineer"
+	_save_best()
+
+func title_toast(msg: String) -> void:
+	title.toast(msg)
+
+# ---------------------------------------------------------------- flow
+func enter_title() -> void:
+	title_mode = true
+	running = false
+	game_over = false
+	paused = false
+	horn = false
+	hud.visible = false
+	hud.set_paused(false)
+	hud.over_panel.visible = false
+	BEHIND_KEEP = 1100.0
+	reset_world()
+	front_d = 400.0
+	_stream()
+	speed = cine.SPEED
+	snd.start()
+	cine.start()
+	title.open()
+	_apply_settings()
+
+func _leave_title() -> void:
+	title_mode = false
+	cine.stop()
+	title.close()
+	hud.visible = true
+	BEHIND_KEEP = 450.0
+	horn = false
+	cam.current = true
+	_apply_settings()
+
+func start_switch_challenge() -> void:
+	_leave_title()
+	rng.randomize()
+	run_seed = rng.randi()
+	rng.seed = run_seed
+	reset_world()
+	start_game()
+
+func go_to_main_menu() -> void:
+	snd.update(0.016, {"speed": 0.0, "notch": 0, "power": 0.0, "dyn": 0.0, "bp": 90.0, "bc": 0.0, "lbc": 0.0,
+		"emergency": false, "horn": false, "bell": false, "alert": 0, "running": false})
+	enter_title()
+
+func _title_process(delta: float) -> void:
+	var d_prev := front_d
+	speed = cine.SPEED
+	front_d += speed * delta
+	_stream()
+	_joint_clacks(d_prev, front_d)
+	# blow for the crossings just like a real engineer would
+	var xc: Dictionary = xings.whistle_post_ahead(front_d)
+	horn = false
+	if not xc.is_empty():
+		var ah: float = xc["d"] - front_d
+		if ah < 395.0:
+			if not xc.has("ap_t0"):
+				xc["ap_t0"] = time_s
+			var t: float = time_s - xc["ap_t0"]
+			horn = (t < 2.0) or (t > 3.0 and t < 5.0) or (t > 6.0 and t < 6.5) or (t > 7.3 and ah > 0.0)
+	xings.update(delta, front_d, speed, horn, cine.train_len, time_s)
+	_place_cab(delta)
+	cine.update(delta)
+	snd.update(delta, {"speed": speed, "notch": 6, "power": 0.75, "dyn": 0.0, "bp": 90.0, "bc": 0.0, "lbc": 0.0,
+		"emergency": false, "horn": horn, "bell": false, "alert": 0, "running": true})
+
+# ---------------------------------------------------------------- save / continue
+func has_saved_run() -> bool:
+	return FileAccess.file_exists(RUN_SAVE)
+
+func save_run() -> void:
+	var cf := ConfigFile.new()
+	cf.set_value("run", "seed", run_seed)
+	cf.set_value("run", "d", front_d)
+	cf.set_value("run", "score", score)
+	cf.set_value("run", "strikes", strikes)
+	cf.set_value("run", "time", time_s)
+	cf.set_value("run", "loco", loco_model)
+	cf.set_value("run", "classic_db", classic_db)
+	cf.set_value("run", "consist", consist)
+	cf.save(RUN_SAVE)
+	hud.toast("Game saved at MP %.1f" % (front_d / 1609.34), Color(0.6, 1.0, 0.6))
+
+func continue_run() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(RUN_SAVE) != OK:
+		return
+	loco_model = str(cf.get_value("run", "loco", loco_model))
+	classic_db = bool(cf.get_value("run", "classic_db", classic_db))
+	var c = cf.get_value("run", "consist", consist)
+	if c is Dictionary:
+		consist = c
+	_leave_title()
+	_build_cab_model()
+	hud.configure_controls()
+	run_seed = int(cf.get_value("run", "seed", 0))
+	rng.seed = run_seed
+	reset_world()
+	# rebuild the line from the saved milepost onward, stopped on the main
+	var d: float = cf.get_value("run", "d", 0.0)
+	for ev in events:
+		_free_event(ev)
+	events.clear()
+	for k in chunks.keys():
+		chunks[k].queue_free()
+	chunks.clear()
+	joints.clear()
+	front_d = d
+	next_event_d = d + 600.0
+	next_joint_d = d + 20.0
+	_stream()
+	start_game()
+	score = cf.get_value("run", "score", 0.0)
+	strikes = int(cf.get_value("run", "strikes", 0))
+	hud.toast("Welcome back, %s. Picking up at MP %.1f" % [profile["name"], d / 1609.34], Color(0.6, 1.0, 0.6))

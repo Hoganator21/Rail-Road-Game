@@ -41,6 +41,15 @@ func _ready() -> void:
 		add_child(b)
 		bell_players.append(b)
 
+## Route players onto the Engine / Horn buses so the settings sliders work.
+func assign_buses() -> void:
+	for k in loops:
+		loops[k].bus = "Horn" if k in ["horn", "alerter"] else "Engine"
+	for p in one_shots:
+		p.bus = "Engine"
+	for b in bell_players:
+		b.bus = "Horn"
+
 func start() -> void:
 	for k in loops:
 		if not loops[k].playing:

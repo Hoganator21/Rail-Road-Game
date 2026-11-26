@@ -692,3 +692,158 @@ func pole_line(parent: Node, d0: float, d1: float, x: float, skip: Callable) -> 
 	if poles.size() >= 1:
 		for wx in [x - 0.9, x + 0.9]:
 			box(parent, Vector3(0.02, 0.02, d1 - d0), Vector3(wx, -0.45 + 9.42, -(d0 + d1) * 0.5), mats["black"], false)
+
+# ================================================================ buildings (scenery zones)
+const SIDING_COLS := ["e8e2d4", "c9d3d6", "d8cfb0", "a9b7a0", "f0ece2", "b8a58a", "8fa3b5", "d9c2a7"]
+const BRICK_COLS := ["8a4b36", "9a5a41", "7a4231", "a2694d", "6f5a4a"]
+
+func prism(parent: Node, size: Vector3, pos: Vector3, m: Material, rot_y: float = 0.0) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var pm := PrismMesh.new()
+	pm.size = size
+	mi.mesh = pm
+	mi.material_override = m
+	mi.position = pos
+	mi.rotation.y = rot_y
+	parent.add_child(mi)
+	return mi
+
+func _bmats() -> void:
+	if mats.has("roof_shingle"):
+		return
+	mats["roof_shingle"] = mat(Color("3d3b3a"), 0.9)
+	mats["roof_brown"] = mat(Color("5a4636"), 0.9)
+	mats["roof_tin"] = mat(Color("8d9093"), 0.45, 0.6)
+	mats["window"] = mat(Color("1d2328"), 0.15, 0.3)
+	mats["trim"] = mat(Color("f2f0ea"), 0.7)
+	mats["barn_red"] = mat(Color("8e2c22"), 0.85)
+	mats["fence"] = mat(Color("cfc8b8"), 0.9)
+	mats["stack"] = mat(Color("7c756c"), 0.9)
+	mats["awning"] = mat(Color("2f5d45"), 0.8)
+
+## Gable-roof house facing the track (faces -sign(x)), with door, windows and chimney.
+func house(parent: Node, x: float, d: float, srng: RandomNumberGenerator) -> void:
+	_bmats()
+	var g := Node3D.new()
+	var w := srng.randf_range(8.0, 11.0)
+	var dp := srng.randf_range(7.0, 9.5)
+	var h := 2.9 if srng.randf() < 0.65 else 5.6
+	var body := shared("siding_" + str(SIDING_COLS[srng.randi() % SIDING_COLS.size()]), Color(SIDING_COLS[srng.randi() % SIDING_COLS.size()]), 0.85)
+	var roofm: Material = mats["roof_shingle"] if srng.randf() < 0.6 else mats["roof_brown"]
+	box(g, Vector3(w + 0.3, 0.6, dp + 0.3), Vector3(0, 0.0, 0), mats["concrete"])
+	box(g, Vector3(w, h, dp), Vector3(0, 0.3 + h / 2.0, 0), body)
+	prism(g, Vector3(w + 0.8, 2.0, dp + 0.8), Vector3(0, 0.3 + h + 1.0, 0), roofm)
+	var face := -signf(x)
+	var fz := face * (w / 2.0 + 0.03)
+	box(g, Vector3(0.06, 2.1, 0.95), Vector3(fz, 0.3 + 1.05, 0.0), mats["door"])
+	for wz in [-dp * 0.3, dp * 0.3]:
+		for fl in (range(2) if h > 4.0 else range(1)):
+			box(g, Vector3(0.06, 1.2, 1.1), Vector3(fz, 0.3 + 1.5 + fl * 2.7, wz), mats["window"])
+			box(g, Vector3(0.08, 1.35, 0.12), Vector3(fz, 0.3 + 1.5 + fl * 2.7, wz - 0.62), mats["trim"])
+			box(g, Vector3(0.08, 1.35, 0.12), Vector3(fz, 0.3 + 1.5 + fl * 2.7, wz + 0.62), mats["trim"])
+	if srng.randf() < 0.6:
+		box(g, Vector3(0.9, 2.2, 0.9), Vector3(-face * w * 0.25, 0.3 + h + 1.4, dp * 0.25), shared("brick_0", Color(BRICK_COLS[0]), 0.9))
+	if srng.randf() < 0.5:   # porch
+		box(g, Vector3(2.0, 0.25, dp * 0.7), Vector3(fz + face * 1.0, 0.45, 0), mats["concrete"])
+		box(g, Vector3(2.2, 0.15, dp * 0.75), Vector3(fz + face * 1.0, 0.3 + 2.6, 0), roofm)
+	g.position = Vector3(x, ground_h(x, -d) - 0.5, -d)
+	g.rotation.y = srng.randf_range(-0.08, 0.08)
+	parent.add_child(g)
+
+## Red barn with a gambrel-ish roof, a silo and a fence line.
+func farmstead(parent: Node, x: float, d: float, srng: RandomNumberGenerator) -> void:
+	_bmats()
+	var g := Node3D.new()
+	var s := signf(x)
+	box(g, Vector3(14, 7, 22), Vector3(0, 3.0, 0), mats["barn_red"])
+	prism(g, Vector3(15.2, 4.5, 22.6), Vector3(0, 8.7, 0), mats["roof_tin"])
+	box(g, Vector3(0.1, 4.5, 5.0), Vector3(-s * 7.05, 2.4, 0), mats["trim"])
+	for k in 2:
+		cyl(g, 3.0, 3.0, 16.0, Vector3(s * 11.0 + k * s * 6.8, 7.5, -8.0), mats["silo"], 18)
+		var dome := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 3.0
+		sm.height = 3.0
+		sm.is_hemisphere = true
+		dome.mesh = sm
+		dome.material_override = mats["roof_tin"]
+		dome.position = Vector3(s * 11.0 + k * s * 6.8, 15.5, -8.0)
+		g.add_child(dome)
+	house(g, s * -2.0, -28.0, srng)
+	g.position = Vector3(x, ground_h(x, -d) - 0.5, -d)
+	parent.add_child(g)
+	fence(parent, x - s * 12.0, d - 60.0, d + 60.0)
+
+func fence(parent: Node, x: float, d0: float, d1: float) -> void:
+	_bmats()
+	var n := int((d1 - d0) / 3.0)
+	for i in n + 1:
+		box(parent, Vector3(0.12, 1.3, 0.12), Vector3(x, ground_h(x, -(d0 + i * 3.0)) - 0.0, -(d0 + i * 3.0)), mats["fence"], false)
+	for y in [0.35, 0.75]:
+		box(parent, Vector3(0.05, 0.12, d1 - d0), Vector3(x, ground_h(x, -(d0 + d1) / 2.0) - 0.5 + y + 0.45, -(d0 + d1) / 2.0), mats["fence"], false)
+
+## A block of 1-3 storey brick storefronts along a street parallel to the track.
+func storefronts(parent: Node, x: float, d0: float, d1: float, srng: RandomNumberGenerator) -> void:
+	_bmats()
+	var face := -signf(x)
+	var d := d0
+	while d < d1:
+		var w := srng.randf_range(8.0, 14.0)
+		var fl := srng.randi_range(1, 3)
+		var h := fl * 3.6
+		var bc := Color(BRICK_COLS[srng.randi() % BRICK_COLS.size()])
+		var bm := shared("brick_" + bc.to_html(), bc, 0.92)
+		var depth := srng.randf_range(14.0, 20.0)
+		var bx := x - face * depth / 2.0
+		box(parent, Vector3(depth, h, w - 0.2), Vector3(bx, h / 2.0 - 0.4, -(d + w / 2.0)), bm)
+		box(parent, Vector3(depth + 0.2, 0.7, w), Vector3(bx, h + 0.0, -(d + w / 2.0)), bm)        # parapet
+		box(parent, Vector3(0.08, 2.4, w * 0.75), Vector3(x + face * 0.04, 1.0, -(d + w / 2.0)), mats["window"])
+		box(parent, Vector3(1.4, 0.12, w * 0.85), Vector3(x + face * 0.7, 2.7, -(d + w / 2.0)), mats["awning"] if srng.randf() < 0.5 else mats["barn_red"])
+		for f in range(1, fl):
+			for k in 3:
+				box(parent, Vector3(0.08, 1.4, 1.0), Vector3(x + face * 0.04, f * 3.6 + 1.0, -(d + w * (0.22 + 0.28 * k))), mats["window"])
+		d += w
+	parent.add_child(road_strip(x + face * 7.0, d0 - 10.0, d1 + 10.0, 9.0))
+
+## Town water tower with the town name on the tank.
+func water_tower(parent: Node, x: float, d: float, town: String) -> void:
+	_bmats()
+	var g := Node3D.new()
+	for a in 4:
+		var ang := a * PI / 2.0 + PI / 4.0
+		var leg := cyl(g, 0.25, 0.3, 24.0, Vector3(cos(ang) * 4.5, 12.0, sin(ang) * 4.5), mats["tank_stand"], 8)
+		leg.rotation = Vector3(sin(ang) * 0.06, 0, -cos(ang) * 0.06)
+	cyl(g, 6.0, 6.0, 7.0, Vector3(0, 27.0, 0), mats["tank_white"], 28)
+	var cone := cyl(g, 0.3, 6.3, 3.0, Vector3(0, 32.0, 0), mats["tank_white"], 28)
+	cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	var lbl := Label3D.new()
+	lbl.text = town.to_upper()
+	lbl.font_size = 220
+	lbl.pixel_size = 0.012
+	lbl.modulate = Color(0.12, 0.18, 0.3)
+	lbl.outline_size = 0
+	lbl.position = Vector3(-signf(x) * 6.05, 27.5, 0)
+	lbl.rotation.y = -signf(x) * PI / 2.0
+	g.add_child(lbl)
+	g.position = Vector3(x, ground_h(x, -d) - 0.5, -d)
+	parent.add_child(g)
+
+## White country church with a steeple.
+func church(parent: Node, x: float, d: float) -> void:
+	_bmats()
+	var g := Node3D.new()
+	box(g, Vector3(10, 6, 18), Vector3(0, 3.0, 0), mats["trim"])
+	prism(g, Vector3(11, 4.0, 18.6), Vector3(0, 8.0, 0), mats["roof_shingle"])
+	box(g, Vector3(4, 10, 4), Vector3(0, 5.0, -10.0), mats["trim"])
+	var sp := cyl(g, 0.1, 2.6, 7.0, Vector3(0, 13.5, -10.0), mats["roof_shingle"], 4)
+	sp.rotation.y = PI / 4.0
+	g.position = Vector3(x, ground_h(x, -d) - 0.5, -d)
+	parent.add_child(g)
+
+## Factory: big shed, smokestack, tanks.
+func factory(parent: Node, x: float, d: float, srng: RandomNumberGenerator) -> void:
+	_bmats()
+	_warehouse(parent, x, d, srng.randf_range(50.0, 90.0), Color("8e8a80"))
+	var s := signf(x)
+	cyl(parent, 1.4, 2.2, 38.0, Vector3(x + s * 14.0, 18.5, -(d + 20.0)), mats["stack"], 14)
+	_tank_farm(parent, x + s * 22.0, d - 30.0, 40.0)
