@@ -1978,7 +1978,7 @@ var title_mode := false
 var cine
 var title
 var fps_label: Label
-var settings := {"vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
+var settings := {"title_video": true, "vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
 var profile := {"name": "Engineer", "runs": 0, "miles": 0.0}
 var run_seed := 0
 
@@ -2024,6 +2024,9 @@ func _apply_settings() -> void:
 func set_setting(key: String, v) -> void:
 	settings[key] = v
 	_apply_settings()
+	if key == "title_video" and title_mode:
+		title.start_video()
+		get_viewport().disable_3d = title.video_on()
 	_save_best()
 
 func set_profile_name(n: String) -> void:
@@ -2046,11 +2049,19 @@ func enter_title() -> void:
 	BEHIND_KEEP = 1100.0
 	reset_world()
 	front_d = 400.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--title-start-d="):
+			front_d = float(a.substr(16))
 	_stream()
 	speed = cine.SPEED
 	snd.start()
 	cine.start()
-	title.open()
+	if "--record" in OS.get_cmdline_user_args():
+		hud.visible = false
+	else:
+		title.open()
+	# with title videos installed, the live 3D cinematic is only a fallback
+	get_viewport().disable_3d = title.video_on() and not "--keep3d" in OS.get_cmdline_user_args()
 	_apply_settings()
 
 func _leave_title() -> void:
@@ -2061,6 +2072,7 @@ func _leave_title() -> void:
 	BEHIND_KEEP = 450.0
 	horn = false
 	cam.current = true
+	get_viewport().disable_3d = false
 	_apply_settings()
 
 func start_switch_challenge() -> void:

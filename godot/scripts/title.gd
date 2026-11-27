@@ -11,7 +11,7 @@ const LOCO_INFO := {
 	"classic": ["EMD GP38-2", "2,000 hp road switcher  -  short hood forward"],
 	"classic_lhf": ["EMD GP38-2  (LHF)", "2,000 hp road switcher  -  long hood forward"],
 }
-const TEXT := Color(0.93, 0.9, 0.84, 0.78)
+const TEXT := Color(0.94, 0.92, 0.87, 0.9)
 const HOT := Color(1.0, 0.84, 0.52, 1.0)
 
 var game
@@ -29,6 +29,15 @@ var t := 0.0
 var f_title: FontVariation
 var f_menu: FontVariation
 var f_small: FontVariation
+# ---- title video clips: res://video/title_01.ogv ... (any count up to 30)
+const XFADE := 0.9
+var players: Array = []
+var clips: Array = []
+var clip_queue: Array = []
+var cur := 0
+var clip_t := 0.0
+var clip_len := 9.0
+var last_clip := ""
 
 func _ready() -> void:
 	layer = 20
@@ -41,13 +50,25 @@ func _ready() -> void:
 	f_title.base_font = load("res://fonts/Cardo-Bold.ttf")
 	f_title.spacing_glyph = 18
 	f_menu = FontVariation.new()
-	f_menu.base_font = load("res://fonts/Montserrat.ttf")
-	f_menu.variation_opentype = {"wght": 600}
+	f_menu.base_font = load("res://fonts/Poppins-Medium.ttf")
 	f_menu.spacing_glyph = 5
 	f_small = FontVariation.new()
-	f_small.base_font = load("res://fonts/Montserrat.ttf")
-	f_small.variation_opentype = {"wght": 400}
+	f_small.base_font = load("res://fonts/Poppins-Regular.ttf")
 	f_small.spacing_glyph = 2
+	# title videos (behind everything else). Two players crossfade between clips.
+	for i in 2:
+		var vp := VideoStreamPlayer.new()
+		vp.set_anchors_preset(Control.PRESET_FULL_RECT)
+		vp.expand = true
+		vp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vp.volume_db = -80.0
+		vp.modulate.a = 0.0
+		root.add_child(vp)
+		players.append(vp)
+	for i in range(1, 31):
+		var path := "res://video/title_%02d.ogv" % i
+		if ResourceLoader.exists(path):
+			clips.append(path)
 	# soft vignette over the picture
 	var vig := ColorRect.new()
 	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -83,7 +104,7 @@ void fragment() {
 	menu.alignment = BoxContainer.ALIGNMENT_CENTER
 	menu.add_theme_constant_override("separation", 10)
 	root.add_child(menu)
-	hint = _text(f_small, 13, Color(0.85, 0.85, 0.85, 0.55), "")
+	hint = _text(f_small, 13, Color(0.92, 0.92, 0.9, 1.0), "")
 	fade = ColorRect.new()
 	fade.color = Color(0, 0, 0, 1)
 	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -111,9 +132,54 @@ func open() -> void:
 	t = 0.0
 	stack.clear()
 	show_page("main")
+	start_video()
+
+func video_on() -> bool:
+	return not clips.is_empty() and bool(game.settings.get("title_video", true)) and visible
+
+func start_video() -> void:
+	for vp in players:
+		vp.stop()
+		vp.modulate.a = 0.0
+	if not video_on():
+		return
+	clip_queue.clear()
+	_play_next(true)
+
+func _play_next(first_clip: bool = false) -> void:
+	if clip_queue.is_empty():
+		clip_queue = clips.duplicate()
+		clip_queue.shuffle()
+		if clip_queue.size() > 1 and clip_queue[0] == last_clip:
+			clip_queue.append(clip_queue.pop_front())
+	last_clip = clip_queue.pop_front()
+	cur = (cur + 1) % 2 if not first_clip else 0
+	var vp: VideoStreamPlayer = players[cur]
+	vp.stream = load(last_clip)
+	vp.play()
+	clip_t = 0.0
+	clip_len = vp.get_stream_length()
+	if clip_len <= 1.0:
+		clip_len = 9.0
+	root.move_child(vp, 1)    # newest clip draws on top of the outgoing one
+
+func _video_process(delta: float) -> void:
+	if not video_on():
+		return
+	clip_t += delta
+	var vp: VideoStreamPlayer = players[cur]
+	var other: VideoStreamPlayer = players[1 - cur]
+	vp.modulate.a = clampf(clip_t / XFADE, 0.0, 1.0)
+	if vp.modulate.a >= 1.0 and other.is_playing():
+		other.stop()
+		other.modulate.a = 0.0
+	if clip_t >= clip_len - XFADE or not vp.is_playing():
+		_play_next()
 
 func close() -> void:
 	visible = false
+	for vp in players:
+		vp.stop()
 
 func _process(delta: float) -> void:
 	if not visible:
@@ -142,12 +208,16 @@ func _process(delta: float) -> void:
 	header.modulate.a = ma
 	hint.modulate.a = ma * 0.9
 	menu.size = Vector2(vw, 0)
-	menu.position = Vector2(0, vh * 0.52 - menu.get_combined_minimum_size().y * 0.5 + 20.0)
+	var my := vh * 0.54 - menu.get_combined_minimum_size().y * 0.5 + 20.0
+	my = maxf(my, tag_lbl.position.y + (80.0 if header.text != "" else 50.0))
+	menu.position = Vector2(0, my)
 	header.size = Vector2(vw, 26)
 	header.position = Vector2(0, menu.position.y - 42)
 	hint.size = Vector2(vw, 20)
 	hint.position = Vector2(0, vh - bh - 30)
-	fade.color.a = maxf(game.cine.fade_alpha, 1.0 - clampf(t / 1.5, 0.0, 1.0))
+	_video_process(delta)
+	var cut_fade: float = 0.0 if video_on() else game.cine.fade_alpha
+	fade.color.a = maxf(cut_fade, 1.0 - clampf(t / 1.5, 0.0, 1.0))
 	menu.mouse_filter = Control.MOUSE_FILTER_STOP if ma > 0.5 else Control.MOUSE_FILTER_IGNORE
 
 func _input(event: InputEvent) -> void:
@@ -182,8 +252,8 @@ func _item(text: String, cb: Callable, enabled: bool = true, size: int = 26) -> 
 	b.add_theme_color_override("font_focus_color", HOT)
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_disabled_color", Color(0.8, 0.8, 0.8, 0.3))
-	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
-	b.add_theme_constant_override("outline_size", 9)
+	b.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.7))
+	b.add_theme_constant_override("outline_size", 4)
 	b.focus_mode = Control.FOCUS_ALL
 	b.disabled = not enabled
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -358,6 +428,8 @@ func show_page(p: String, push: bool = true) -> void:
 			_slider("FIELD OF VIEW", game.settings["fov"], 55.0, 90.0, 1.0, func(v): game.set_setting("fov", v))
 			if not OS.has_feature("mobile"):
 				_choice("FULLSCREEN", func(): return "ON" if game.settings["fullscreen"] else "OFF", func(_d): game.set_setting("fullscreen", not game.settings["fullscreen"]))
+			if not clips.is_empty():
+				_choice("TITLE BACKGROUND", func(): return "VIDEO" if game.settings["title_video"] else "LIVE 3D", func(_d): game.set_setting("title_video", not game.settings["title_video"]))
 			_choice("SHOW FPS", func(): return "ON" if game.settings["show_fps"] else "OFF", func(_d): game.set_setting("show_fps", not game.settings["show_fps"]))
 			_gap(8)
 			_item("BACK", back, true, 20)

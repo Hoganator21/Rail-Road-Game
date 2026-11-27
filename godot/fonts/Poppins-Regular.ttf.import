@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://5mpg4qilac0d"
-path="res://.godot/imported/Montserrat.ttf-ed8bc45d4a8032e9ee8824bf32de39ac.fontdata"
+uid="uid://bonr4r5pshwwo"
+path="res://.godot/imported/Poppins-Regular.ttf-46fad9b0d41334d0bb38b87586f32662.fontdata"
 
 [deps]
 
-source_file="res://fonts/Montserrat.ttf"
-dest_files=["res://.godot/imported/Montserrat.ttf-ed8bc45d4a8032e9ee8824bf32de39ac.fontdata"]
+source_file="res://fonts/Poppins-Regular.ttf"
+dest_files=["res://.godot/imported/Poppins-Regular.ttf-46fad9b0d41334d0bb38b87586f32662.fontdata"]
 
 [params]
 

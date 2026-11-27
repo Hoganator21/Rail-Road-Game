@@ -28,6 +28,7 @@ var first := true
 var xing_d := -1.0
 var test_order: Array = []      # --cine-order=3,5,... for screenshots
 var shot_len := SHOT_LEN
+var recording := false          # --record: no fades, the video player crossfades instead
 
 func setup(g) -> void:
 	game = g
@@ -37,6 +38,8 @@ func setup(g) -> void:
 				test_order.append(int(x))
 		elif a.begins_with("--cine-len="):
 			shot_len = float(a.substr(11))
+		elif a == "--record":
+			recording = true
 	cam = Camera3D.new()
 	cam.near = 0.1
 	cam.far = 4000.0
@@ -164,6 +167,8 @@ func update(delta: float) -> void:
 	fade_alpha = clampf(maxf(1.0 - shot_t / fin, (shot_t - (shot_len - FADE)) / FADE), 0.0, 1.0)
 	if first and shot_t > fin:
 		first = false
+	if recording:
+		fade_alpha = 0.0
 	var s: Array = _shot(shot, shot_t / shot_len, f)
 	var pos: Vector3 = s[0]
 	# a touch of handheld drift so nothing feels locked off
@@ -185,7 +190,7 @@ func _shot(i: int, u: float, f: float) -> Array:
 	var L := train_len
 	match i:
 		0:   # low trackside: the train comes at you and thunders past
-			return [_p(shot_d0 + 115.0, 4.4, 0.55), _p(f - 8.0, 0.0, 2.4), 36.0, 450.0]
+			return [_p(shot_d0 + 115.0, 6.5, 1.25), _p(f - 8.0, 0.0, 2.6), 36.0, 450.0]
 		1:   # drone pacing alongside, slowly sliding back down the train
 			return [_p(f - 30.0 - u * 45.0, -40.0, 19.0), _p(f - 70.0 - u * 40.0, 0.0, 2.0), 34.0, 0.0]
 		2:   # hero shot just ahead of the nose, low
@@ -194,7 +199,7 @@ func _shot(i: int, u: float, f: float) -> Array:
 			var cd := f - 45.0 - u * 70.0
 			return [_p(cd, 2.7, 0.7), _p(cd - 30.0, 0.3, 1.0), 50.0, 70.0]
 		4:   # long lens across the fields
-			return [_p(shot_d0 + 110.0, 150.0, 7.0), _p(f - 70.0, 0.0, 3.0), 13.0, 0.0]
+			return [_p(shot_d0 + 110.0, 150.0, 26.0), _p(f - 70.0, 0.0, 3.0), 13.0, 0.0]
 		5:   # high aerial tracking shot
 			return [_p(f - 30.0 + u * 30.0, 22.0, 78.0), _p(f - 140.0, 0.0, 0.0), 42.0, 0.0]
 		6:   # the rear end and the EOT going away from you

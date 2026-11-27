@@ -437,6 +437,7 @@ func _exterior_modern(L: Node) -> void:
 	for s in [-1.0, 1.0]:
 		tube(L, Vector3(s * 0.95, deck_y + 0.3, -3.16), Vector3(s * 0.95, deck_y + 0.85, -3.16), 0.02, m["handrail"])
 	_long_hood(L, deck_y, 1.85)
+	_running_gear(L, deck_y, 4.8, 6.4, 3, 5.6)
 	_railings(L, deck_y, -0.05, -4.05, [-1.52, 1.52], 0.45)
 	_railings(L, deck_y, 2.75, 13.65, [-1.52, 1.52], 0.45)
 
@@ -452,6 +453,7 @@ func _exterior_classic(L: Node) -> void:
 		var hl := cyl(L, 0.09, 0.09, 0.04, m["ditch"], Vector3(hx, deck_y + 1.0, -3.26), 14)
 		hl.rotation.x = PI / 2.0
 	_long_hood(L, deck_y, 1.80)
+	_running_gear(L, deck_y, 4.5, 5.1, 2, 4.6)
 	_railings(L, deck_y, -0.05, -4.45, [-1.46, 1.46], 0.45)
 	_railings(L, deck_y, 2.75, 13.45, [-1.46, 1.46], 0.45)
 
@@ -491,8 +493,48 @@ func _exterior_lhf(L: Node) -> void:
 	box(L, 0.06, 0.06, hood_len - 0.4, m["steel_dark"], hw / 2.0 + 0.02, deck_y + hh + 0.02, -hood_len / 2.0)
 	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(0.5, deck_y + hh + 0.24, -hood_len + 0.4), 16)
 	box(L, 1.82, 1.25, 2.8, m["hood"], 0, deck_y + 0.68, 3.85)    # short hood behind the cab
+	_running_gear(L, deck_y, -5.1, 5.1, 2, 4.6)
 	_railings(L, deck_y, -0.05, front_end + 0.15, [-1.46, 1.46], 0.45)
 	_railings(L, deck_y, 2.75, 4.45, [-1.46, 1.46], 0.45)
+
+## Trucks (wheels, side frames, springs, traction motors), fuel tank and air reservoirs.
+## Rail top is at y = -3.75 in cab-model space.
+func _running_gear(L: Node, deck_y: float, z_mid: float, truck_off: float, axles: int, tank_len: float) -> void:
+	var rail := -3.75
+	var wr := 0.52
+	var sp := 1.95 if axles == 3 else 2.6
+	for tz in [z_mid - truck_off, z_mid + truck_off]:
+		var first: float = tz - sp * (axles - 1) / 2.0
+		for a in axles:
+			var az: float = first + a * sp
+			for sx in [-0.78, 0.78]:
+				var w := cyl(L, wr, wr, 0.14, m["steel_dark"], Vector3(sx, rail + wr, az), 18)
+				w.rotation.z = PI / 2.0
+			var axle := cyl(L, 0.09, 0.09, 1.7, m["steel_dark"], Vector3(0, rail + wr, az), 8)
+			axle.rotation.z = PI / 2.0
+			box(L, 0.9, 0.55, 0.7, m["steel_dark"], 0, rail + wr + 0.15, az)            # traction motor
+		for sx in [-1.0, 1.0]:
+			var len := sp * (axles - 1) + 1.4
+			box(L, 0.16, 0.42, len, m["deck"], sx * 0.98, rail + wr + 0.08, tz)         # side frame
+			for a in axles:
+				var bz: float = first + a * sp
+				box(L, 0.2, 0.22, 0.38, m["steel_dark"], sx * 1.02, rail + wr, bz)       # journal box
+			for k in 2:
+				cyl(L, 0.09, 0.09, 0.32, m["steel"], Vector3(sx * 0.98, rail + wr + 0.46, tz + (k - 0.5) * 0.7), 8)   # springs
+		box(L, 2.3, 0.25, 1.2, m["deck"], 0, deck_y - 0.35, tz)                            # bolster
+	# fuel tank and main air reservoirs between the trucks
+	var t_top := deck_y - 0.1
+	var t_bot := rail + 0.5
+	var ty := (t_top + t_bot) / 2.0
+	box(L, 2.5, t_top - t_bot, tank_len, m["paint"], 0, ty, z_mid)
+	for e in [-1.0, 1.0]:
+		var cap := cyl(L, (t_top - t_bot) / 2.0, (t_top - t_bot) / 2.0, 2.5, m["paint"], Vector3(0, ty, z_mid + e * tank_len / 2.0), 16)
+		cap.rotation.z = PI / 2.0
+		cap.scale = Vector3(1, 1, 0.45)
+	for sx in [-1.12, 1.12]:
+		var res := cyl(L, 0.2, 0.2, tank_len * 0.7, m["steel_dark"], Vector3(sx, deck_y - 0.35, z_mid), 12)
+		res.rotation.x = PI / 2.0
+	box(L, 0.5, 0.5, 0.3, m["black"], 1.2, ty, z_mid - tank_len * 0.2)   # fuel gauge / filler
 
 func _railings(p: Node, deck_y: float, z0: float, z1: float, xs: Array, step_gap_x: float) -> void:
 	var top := deck_y + 1.05
