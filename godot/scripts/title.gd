@@ -32,6 +32,8 @@ var f_menu: FontVariation
 var f_small: FontVariation
 # ---- title video clips: res://video/title_01.ogv ... (any count up to 30)
 const XFADE := 0.9
+## Godot can't read Theora durations, so list each clip's length (seconds) here.
+const CLIP_LEN := {"title_01": 100.0}
 var players: Array = []
 var clips: Array = []
 var clip_queue: Array = []
@@ -164,7 +166,7 @@ func _play_next(first_clip: bool = false) -> void:
 	clip_t = 0.0
 	clip_len = vp.get_stream_length()
 	if clip_len <= 1.0:
-		clip_len = 9.0
+		clip_len = float(CLIP_LEN.get(last_clip.get_file().get_basename(), -1.0))
 	root.move_child(vp, 1)    # newest clip draws on top of the outgoing one
 
 func _video_process(delta: float) -> void:
@@ -177,7 +179,7 @@ func _video_process(delta: float) -> void:
 	if vp.modulate.a >= 1.0 and other.is_playing():
 		other.stop()
 		other.modulate.a = 0.0
-	if clip_t >= clip_len - XFADE or not vp.is_playing():
+	if (clip_len > 0.0 and clip_t >= clip_len - XFADE) or (clip_t > 1.0 and not vp.is_playing()):
 		_play_next()
 
 func close() -> void:
