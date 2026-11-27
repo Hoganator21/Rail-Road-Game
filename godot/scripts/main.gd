@@ -1465,7 +1465,7 @@ func _stream() -> void:
 		_gen_event()
 	while next_joint_d < front_d + 300.0:
 		joints.append([next_joint_d, false])
-		next_joint_d += rng.randf_range(25.0, 90.0)
+		next_joint_d += jrng.randf_range(25.0, 90.0)
 	var first := int(floor((front_d - BEHIND_KEEP) / CHUNK))
 	var last := int(floor((front_d + AHEAD_BUILD) / CHUNK))
 	for k in chunks.keys():
@@ -1981,6 +1981,7 @@ var fps_label: Label
 var settings := {"title_video": true, "vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
 var profile := {"name": "Engineer", "runs": 0, "miles": 0.0}
 var run_seed := 0
+var jrng := RandomNumberGenerator.new()
 
 func cab_fov() -> float:
 	return float(settings["fov"])

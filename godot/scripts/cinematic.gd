@@ -4,7 +4,7 @@ extends Node3D
 ## in any order and it always looks like one long run through the countryside.
 
 const CabBuilder = preload("res://scripts/cab.gd")
-const SPEED := 15.5             # m/s, about 35 mph
+var SPEED := 19.0               # m/s, about 43 mph
 const SHOT_LEN := 9.5
 const FADE := 0.8
 const UNIT_LEN := {"modern": 18.0, "sd70ace": 18.0, "classic": 18.2, "classic_lhf": 19.4}
@@ -38,6 +38,8 @@ func setup(g) -> void:
 				test_order.append(int(x))
 		elif a.begins_with("--cine-len="):
 			shot_len = float(a.substr(11))
+		elif a.begins_with("--cine-speed="):
+			SPEED = float(a.substr(13))
 		elif a == "--record":
 			recording = true
 	cam = Camera3D.new()

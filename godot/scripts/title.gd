@@ -26,6 +26,7 @@ var hint: Label
 var page := "main"
 var stack: Array = []
 var t := 0.0
+var tsc := 1.0      # title scale: full on the main page, smaller on sub-pages
 var f_title: FontVariation
 var f_menu: FontVariation
 var f_small: FontVariation
@@ -102,7 +103,7 @@ void fragment() {
 	header = _text(f_small, 17, Color(1, 0.84, 0.52, 0.9), "")
 	menu = VBoxContainer.new()
 	menu.alignment = BoxContainer.ALIGNMENT_CENTER
-	menu.add_theme_constant_override("separation", 10)
+	menu.add_theme_constant_override("separation", 6)
 	root.add_child(menu)
 	hint = _text(f_small, 13, Color(0.92, 0.92, 0.9, 1.0), "")
 	fade = ColorRect.new()
@@ -132,6 +133,9 @@ func open() -> void:
 	t = 0.0
 	stack.clear()
 	show_page("main")
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--title-page="):
+			show_page(a.substr(13))
 	start_video()
 
 func video_on() -> bool:
@@ -196,20 +200,24 @@ func _process(delta: float) -> void:
 	# the title slowly gathers itself in, letters drawing together
 	var k := clampf((t - 0.8) / 3.5, 0.0, 1.0)
 	var ease := 1.0 - pow(1.0 - k, 3.0)
-	f_title.spacing_glyph = int(lerpf(34.0, 16.0, ease))
+	var want := 1.0 if page == "main" else 0.6
+	if not is_equal_approx(tsc, want):
+		tsc = move_toward(tsc, want, delta * 1.6)
+		title_lbl.add_theme_font_size_override("font_size", int(92.0 * tsc))
+	f_title.spacing_glyph = int(lerpf(34.0, 16.0, ease) * tsc)
 	title_lbl.modulate.a = ease
-	title_lbl.size = Vector2(vw, 120)
-	title_lbl.position = Vector2(0, bh + vh * 0.04 + (1.0 - ease) * 10.0)
-	tag_lbl.modulate.a = clampf((t - 2.6) / 2.0, 0.0, 1.0)
+	title_lbl.size = Vector2(vw, 120.0 * tsc)
+	title_lbl.position = Vector2(0, bh + vh * 0.04 * tsc + (1.0 - ease) * 10.0)
+	tag_lbl.modulate.a = clampf((t - 2.6) / 2.0, 0.0, 1.0) * clampf((tsc - 0.6) / 0.4, 0.0, 1.0)
 	tag_lbl.size = Vector2(vw, 24)
-	tag_lbl.position = Vector2(0, title_lbl.position.y + 112)
+	tag_lbl.position = Vector2(0, title_lbl.position.y + 112.0 * tsc)
 	var ma := clampf((t - 3.4) / 1.4, 0.0, 1.0)
 	menu.modulate.a = ma
 	header.modulate.a = ma
 	hint.modulate.a = ma * 0.9
 	menu.size = Vector2(vw, 0)
 	var my := vh * 0.54 - menu.get_combined_minimum_size().y * 0.5 + 20.0
-	my = maxf(my, tag_lbl.position.y + (80.0 if header.text != "" else 50.0))
+	my = maxf(my, title_lbl.position.y + 120.0 * tsc + (56.0 if header.text != "" else 30.0) - (0.0 if page == "main" else 30.0))
 	menu.position = Vector2(0, my)
 	header.size = Vector2(vw, 26)
 	header.position = Vector2(0, menu.position.y - 42)
@@ -269,9 +277,27 @@ func _set_text(b: Button, text: String) -> void:
 	b.text = ("—    " + text + "    —") if b.has_focus() else text
 
 ## A "NAME   <  value  >" row: press / right for next, left for previous.
+## A "NAME   ‹  value  ›" row. Tap the arrows (or press left/right) to change it;
+## tapping the value itself steps forward.
 func _choice(label: String, get_v: Callable, step: Callable) -> Button:
-	var b := _item("", func(): pass, true, 20)
-	var refresh := func(): _set_text(b, "%s     ‹  %s  ›" % [label, str(get_v.call())])
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	menu.add_child(row)
+	var l := _row_label(label)
+	row.add_child(l)
+	var b := _item("", func(): pass, true, 25)
+	menu.remove_child(b)
+	b.custom_minimum_size = Vector2(330, 44)
+	var refresh := func(): _set_text(b, str(get_v.call()))
+	var prev := _arrow("‹", func(): step.call(-1); refresh.call(); _refresh_info())
+	var next := _arrow("›", func(): step.call(1); refresh.call(); _refresh_info())
+	row.add_child(prev)
+	row.add_child(b)
+	row.add_child(next)
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(l.custom_minimum_size.x, 0)
+	row.add_child(pad)
 	refresh.call()
 	b.pressed.connect(func(): step.call(1); refresh.call(); _refresh_info())
 	b.gui_input.connect(func(e: InputEvent):
@@ -282,35 +308,65 @@ func _choice(label: String, get_v: Callable, step: Callable) -> Button:
 	b.set_meta("refresh", refresh)
 	return b
 
+func _row_label(label: String) -> Label:
+	var l := Label.new()
+	l.text = label
+	l.custom_minimum_size = Vector2(250, 0)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_override("font", f_small)
+	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_color_override("font_color", Color(1, 0.84, 0.52, 0.95))
+	l.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.7))
+	l.add_theme_constant_override("outline_size", 4)
+	return l
+
+func _arrow(txt: String, cb: Callable) -> Button:
+	var a := Button.new()
+	a.text = txt
+	a.flat = true
+	_flat(a)
+	a.focus_mode = Control.FOCUS_NONE
+	a.custom_minimum_size = Vector2(64, 44)
+	a.add_theme_font_override("font", f_menu)
+	a.add_theme_font_size_override("font_size", 32)
+	a.add_theme_color_override("font_color", TEXT)
+	a.add_theme_color_override("font_hover_color", HOT)
+	a.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	a.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.7))
+	a.add_theme_constant_override("outline_size", 4)
+	a.pressed.connect(cb)
+	return a
+
 func _slider(label: String, v: float, lo: float, hi: float, step: float, cb: Callable) -> HSlider:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 24)
-	var l := Label.new()
-	l.text = label
-	l.custom_minimum_size = Vector2(220, 0)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	l.add_theme_font_override("font", f_menu)
-	l.add_theme_font_size_override("font_size", 19)
-	l.add_theme_color_override("font_color", TEXT)
-	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
-	l.add_theme_constant_override("shadow_offset_y", 2)
+	var l := _row_label(label)
 	var s := HSlider.new()
 	s.min_value = lo
 	s.max_value = hi
 	s.step = step
 	s.value = v
-	s.custom_minimum_size = Vector2(300, 28)
+	s.custom_minimum_size = Vector2(420, 48)
+	var grab := Image.create(30, 30, false, Image.FORMAT_RGBA8)
+	for y in 30:
+		for x in 30:
+			var dd := Vector2(x - 14.5, y - 14.5).length()
+			grab.set_pixel(x, y, Color(1, 0.86, 0.55, clampf(14.0 - dd, 0.0, 1.0)) if dd < 14.0 else Color(0, 0, 0, 0))
+	var gt := ImageTexture.create_from_image(grab)
+	s.add_theme_icon_override("grabber", gt)
+	s.add_theme_icon_override("grabber_highlight", gt)
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var line := StyleBoxFlat.new()
 	line.bg_color = Color(1, 1, 1, 0.25)
-	line.content_margin_top = 1
-	line.content_margin_bottom = 1
+	line.content_margin_top = 3
+	line.content_margin_bottom = 3
 	s.add_theme_stylebox_override("slider", line)
 	var fill := StyleBoxFlat.new()
 	fill.bg_color = Color(1, 0.84, 0.52, 0.9)
-	fill.content_margin_top = 1
-	fill.content_margin_bottom = 1
+	fill.content_margin_top = 3
+	fill.content_margin_bottom = 3
 	s.add_theme_stylebox_override("grabber_area", fill)
 	s.add_theme_stylebox_override("grabber_area_highlight", fill)
 	var focus := StyleBoxFlat.new()
@@ -320,9 +376,9 @@ func _slider(label: String, v: float, lo: float, hi: float, step: float, cb: Cal
 	s.add_theme_stylebox_override("focus", focus)
 	s.value_changed.connect(cb)
 	var val := Label.new()
-	val.custom_minimum_size = Vector2(60, 0)
+	val.custom_minimum_size = Vector2(70, 0)
 	val.add_theme_font_override("font", f_small)
-	val.add_theme_font_size_override("font_size", 16)
+	val.add_theme_font_size_override("font_size", 21)
 	val.add_theme_color_override("font_color", TEXT)
 	val.text = str(int(round(v * (100.0 if hi <= 1.0 else 1.0))))
 	s.value_changed.connect(func(x): val.text = str(int(round(x * (100.0 if hi <= 1.0 else 1.0)))))
@@ -333,7 +389,7 @@ func _slider(label: String, v: float, lo: float, hi: float, step: float, cb: Cal
 	menu.add_child(row)
 	return s
 
-func _note(text: String, size: int = 14, col: Color = Color(0.85, 0.82, 0.76, 0.7)) -> Label:
+func _note(text: String, size: int = 16, col: Color = Color(0.85, 0.82, 0.76, 0.7)) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -387,7 +443,7 @@ func show_page(p: String, push: bool = true) -> void:
 			_item("CAREER", func(): pass, false)
 			_note("Coming soon")
 			_gap(10)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 		"depart":
 			header.text = "SWITCH  CHALLENGE"
 			_loco_rows()
@@ -396,9 +452,15 @@ func show_page(p: String, push: bool = true) -> void:
 			_choice("LOADING", func(): return str(game.consist["load"]).to_upper(), func(d): _cycle("load", game.LOAD_KINDS, d))
 			_choice("DPU", func(): return str(game.consist["dpu"]).to_upper(), func(d): _cycle("dpu", game.DPU_KINDS, d))
 			info_lbl = _note(game.consist_text(), 15, Color(0.75, 1.0, 0.8, 0.85))
-			_gap(8)
-			_item("DEPART", func(): game.start_switch_challenge(), true, 30)
-			_item("BACK", back, true, 20)
+			var brow := HBoxContainer.new()
+			brow.alignment = BoxContainer.ALIGNMENT_CENTER
+			brow.add_theme_constant_override("separation", 80)
+			var bk := _item("BACK", back, true, 24)
+			var dp := _item("DEPART", func(): game.start_switch_challenge(), true, 30)
+			for bb in [bk, dp]:
+				menu.remove_child(bb)
+				brow.add_child(bb)
+			menu.add_child(brow)
 		"locos":
 			header.text = "LOCOMOTIVES"
 			_loco_rows()
@@ -406,13 +468,13 @@ func show_page(p: String, push: bool = true) -> void:
 			_gap(4)
 			_note("The diesel shop is coming in the next update.", 13, Color(0.8, 0.8, 0.8, 0.5))
 			_gap(8)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 		"settings":
 			header.text = "SETTINGS"
 			_item("AUDIO", func(): show_page("audio"))
 			_item("DISPLAY", func(): show_page("display"))
 			_gap(8)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 		"audio":
 			header.text = "AUDIO"
 			var st: Dictionary = game.settings
@@ -421,7 +483,7 @@ func show_page(p: String, push: bool = true) -> void:
 			_slider("HORN & BELL", st["vol_horn"], 0.0, 1.0, 0.05, func(v): game.set_setting("vol_horn", v))
 			_slider("AMBIENCE", st["vol_ambient"], 0.0, 1.0, 0.05, func(v): game.set_setting("vol_ambient", v))
 			_gap(8)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 		"display":
 			header.text = "DISPLAY"
 			_choice("GRAPHICS", func(): return game.quality_name(), func(d): game.cycle_quality(d))
@@ -432,7 +494,7 @@ func show_page(p: String, push: bool = true) -> void:
 				_choice("TITLE BACKGROUND", func(): return "VIDEO" if game.settings["title_video"] else "LIVE 3D", func(_d): game.set_setting("title_video", not game.settings["title_video"]))
 			_choice("SHOW FPS", func(): return "ON" if game.settings["show_fps"] else "OFF", func(_d): game.set_setting("show_fps", not game.settings["show_fps"]))
 			_gap(8)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 		"profile":
 			header.text = "PROFILE"
 			var le := LineEdit.new()
@@ -461,7 +523,7 @@ func show_page(p: String, push: bool = true) -> void:
 			_item("SIGN IN", func(): game.title_toast("Cloud sign-in is coming soon. Progress saves on this device for now."), true, 20)
 			_note("Google Play Games and Steam accounts will sync your progress across devices.", 13, Color(0.8, 0.8, 0.8, 0.5))
 			_gap(8)
-			_item("BACK", back, true, 20)
+			_item("BACK", back, true, 25)
 	_focus_first.call_deferred()
 
 func _loco_rows() -> void:
@@ -489,7 +551,7 @@ func _focus_first() -> void:
 			return
 		if c is HBoxContainer:
 			for cc in c.get_children():
-				if cc is HSlider:
+				if cc is HSlider or (cc is Button and cc.focus_mode != Control.FOCUS_NONE):
 					cc.grab_focus()
 					return
 
