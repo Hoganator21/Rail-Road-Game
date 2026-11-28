@@ -414,16 +414,18 @@ func _deck_and_ends(L: Node, w: float, front_len: float, rear_len: float, deck_y
 		var dl := cyl(L, 0.1, 0.1, 0.02, m["ditch"], Vector3(sx, deck_y + 0.25, -front_len + 0.015), 16)
 		dl.rotation.x = PI / 2.0
 
-func _long_hood(L: Node, deck_y: float, hood_w: float) -> void:
+func _long_hood(L: Node, deck_y: float, hood_w: float, r_h: float = 1.65) -> void:
 	var r_len := 10.2
 	var r_start := 2.75
-	var r_h := 1.65
 	box(L, hood_w, r_h, r_len - 2.6, m["hood"], 0, deck_y + r_h / 2.0 + 0.06, r_start + (r_len - 2.6) / 2.0)
 	box(L, hood_w + 0.7, r_h + 0.12, 2.6, m["hood"], 0, deck_y + (r_h + 0.12) / 2.0 + 0.06, r_start + r_len - 1.3)
 	for z in [r_start + r_len - 1.9, r_start + r_len - 0.7]:
 		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
 
 func _exterior_modern(L: Node) -> void:
+	if model == "sd70ace":
+		_exterior_sd70(L)
+		return
 	var deck_y := -2.05
 	_deck_and_ends(L, 3.18, 4.2, 13.8, deck_y)
 	var hm: Material = m["hood"]
@@ -437,6 +439,30 @@ func _exterior_modern(L: Node) -> void:
 	for s in [-1.0, 1.0]:
 		tube(L, Vector3(s * 0.95, deck_y + 0.3, -3.16), Vector3(s * 0.95, deck_y + 0.85, -3.16), 0.02, m["handrail"])
 	_long_hood(L, deck_y, 1.85)
+	_running_gear(L, deck_y, 4.8, 6.4, 3, 5.6)
+	_railings(L, deck_y, -0.05, -4.05, [-1.52, 1.52], 0.45)
+	_railings(L, deck_y, 2.75, 13.65, [-1.52, 1.52], 0.45)
+
+## SD70ACe at the measured heights the Blender cab uses: walkway 72.5 in above the rail,
+## nose top just under the windshield, long hood top just under the rear cab windows.
+func _exterior_sd70(L: Node) -> void:
+	var rail := -3.75
+	var deck_y := rail + 1.84
+	var nose_top := -0.66
+	var hood_top := -0.64
+	_deck_and_ends(L, 3.18, 4.2, 13.8, deck_y)
+	var hm: Material = m["hood"]
+	var nh := nose_top - deck_y
+	box(L, 2.96, nh, 1.85, hm, 0, deck_y + nh / 2.0, -0.92)
+	var slope := box(L, 2.96, 0.08, 1.5, hm, 0, nose_top - 0.12, -2.45)
+	slope.rotation.x = -0.18
+	box(L, 2.96, nh - 0.25, 1.4, hm, 0, deck_y + (nh - 0.25) / 2.0, -2.45)
+	box(L, 2.98, 0.06, 0.08, m["steel_dark"], 0, nose_top + 0.02, -1.8)
+	cyl(L, 0.14, 0.18, 0.2, m["brass"], Vector3(-0.55, nose_top - 0.05, -2.6), 16)
+	box(L, 0.6, 0.18, 0.22, m["black"], 0, nose_top - 0.2, -3.13)
+	for s in [-1.0, 1.0]:
+		tube(L, Vector3(s * 0.95, deck_y + 0.3, -3.16), Vector3(s * 0.95, nose_top - 0.15, -3.16), 0.02, m["handrail"])
+	_long_hood(L, deck_y, 1.85, hood_top - deck_y)
 	_running_gear(L, deck_y, 4.8, 6.4, 3, 5.6)
 	_railings(L, deck_y, -0.05, -4.05, [-1.52, 1.52], 0.45)
 	_railings(L, deck_y, 2.75, 13.65, [-1.52, 1.52], 0.45)
@@ -1066,6 +1092,7 @@ func _interior_model(p: Node, path: String) -> void:
 	lever_auto = piv["brake0"]
 	lever_ind = piv["brake1"]
 	_ao_tex = load(path.replace(".glb", "_ao.png"))
+	_wear_tex = load(path.replace(".glb", "_wear.png")) if ResourceLoader.exists(path.replace(".glb", "_wear.png")) else null
 	_fix_materials(inst)
 	# hand the textured screens over to the live displays
 	for k in ["screen0", "screen1", "cscreen"]:
@@ -1079,6 +1106,46 @@ func _interior_model(p: Node, path: String) -> void:
 	_pickable(p, Vector3(0.95, -0.47 + MODEL_DROP, 0.5), 0.07, "alerter")
 
 var _ao_tex: Texture2D
+var _wear_tex: Texture2D
+var _wear_shader: Shader = preload("res://shaders/cab_wear.gdshader")
+
+## [edge wear, grime, worn tint, bare metal] for each Blender material name.
+func _wear_profile(name: String) -> Array:
+	var n := name.get_slice(".", 0)
+	match n:
+		"wall", "ceil": return [0.45, 0.55, 1.3, 0.0]
+		"stand": return [1.0, 0.6, 1.7, 0.35, 0.2]
+		"console": return [1.0, 0.5, 2.6, 0.5, 0.22]
+		"floor": return [0.3, 0.8, 1.6, 0.0]
+		"seat": return [0.5, 0.45, 1.5, 0.0, 0.08]
+		"vinyl": return [0.7, 0.4, 2.2, 0.0, 0.1]
+		"cast", "black", "rubber", "grip": return [0.7, 0.35, 2.0, 0.4, 0.14]
+		"red", "red_radio", "yellow": return [0.6, 0.5, 1.4, 0.4]
+	return []
+
+func _wear_material(sm: StandardMaterial3D) -> ShaderMaterial:
+	var p: Array = _wear_profile(sm.resource_name)
+	var w := ShaderMaterial.new()
+	w.shader = _wear_shader
+	if sm.albedo_texture:
+		w.set_shader_parameter("albedo_tex", sm.albedo_texture)
+	w.set_shader_parameter("albedo_color", sm.albedo_color)
+	if sm.normal_enabled and sm.normal_texture:
+		w.set_shader_parameter("normal_tex", sm.normal_texture)
+		w.set_shader_parameter("has_normal", true)
+		w.set_shader_parameter("normal_strength", sm.normal_scale)
+	if sm.roughness_texture:
+		w.set_shader_parameter("rough_tex", sm.roughness_texture)
+	w.set_shader_parameter("roughness", sm.roughness)
+	w.set_shader_parameter("metallic", sm.metallic)
+	w.set_shader_parameter("ao_tex", _ao_tex)
+	w.set_shader_parameter("wear_tex", _wear_tex)
+	w.set_shader_parameter("edge_amount", p[0])
+	w.set_shader_parameter("grime_amount", p[1])
+	w.set_shader_parameter("worn_tint", Vector3(p[2], p[2], p[2]))
+	w.set_shader_parameter("worn_metal", p[3])
+	w.set_shader_parameter("worn_floor", p[4] if p.size() > 4 else 0.0)
+	return w
 
 ## Glass comes out of glTF opaque; replace it. Let the baked occlusion darken direct light too
 ## (corners, under the desks), which is most of what makes the cab read as a real enclosed space.
@@ -1091,6 +1158,8 @@ func _fix_materials(n: Node) -> void:
 				continue
 			if mat.resource_name.begins_with("glass") or mi.name.contains("glass") or mi.name.begins_with("windshield"):
 				mi.set_surface_override_material(i, m["glass"])
+			elif mat is StandardMaterial3D and _wear_tex and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2 and _wear_profile(mat.resource_name).size() > 0:
+				mi.set_surface_override_material(i, _wear_material(mat as StandardMaterial3D))
 			elif mat is StandardMaterial3D:
 				var sm := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
 				if _ao_tex and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2:

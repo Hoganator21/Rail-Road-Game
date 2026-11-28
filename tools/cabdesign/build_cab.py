@@ -630,22 +630,64 @@ box("ebv", (0.12, 0.16, 0.1), (-1.47, -0.95, 0.75), M["red"], 0.015)
 cyl("extinguisher", 0.075, 0.42, (1.25, FLOOR + 0.21, 2.6), M["red"], bevel=0.02)
 
 # ------------------------------------------------------------------ seats
-def seat(name, x, z):
-    base = FLOOR
-    cyl(name + "_post", 0.055, 0.3, (x, base + 0.27, z), M["steel"])
-    cyl(name + "_bellows", 0.1, 0.18, (x, base + 0.1, z), M["rubber"])
-    box(name + "_plate", (0.42, 0.03, 0.42), (x, base + 0.015, z), M["cast"], 0.01)
-    cush = box(name + "_cushion", (0.54, 0.13, 0.5), (x, base + 0.5, z), M["seat"], 0.05)
-    sub = cush.modifiers.new("sub", "SUBSURF")
-    sub.levels = 2
+def soft(name, size, pos, mat, rot=(0, 0, 0), round_=0.3, bend=0.0):
+    """Padded shape: box -> wide bevel -> subdivision, so it reads like foam under fabric."""
+    o = box(name, size, pos, mat, 0.0, rot_game=rot)
+    b = o.modifiers.new("pad", "BEVEL")
+    b.width = min(size) * round_
+    b.segments = 3
+    if bend:
+        d = o.modifiers.new("bend", "SIMPLE_DEFORM")
+        d.deform_method = "BEND"
+        d.deform_axis = "Z"
+        d.angle = bend
+    sub = o.modifiers.new("sub", "SUBSURF")
+    sub.levels = 1
     sub.render_levels = 2
-    bk = box(name + "_back", (0.52, 0.7, 0.14), (x, base + 0.95, z + 0.28), M["seat"], 0.05, rot_game=(-0.16, 0, 0))
-    bk.modifiers.new("sub", "SUBSURF").render_levels = 2
-    hr = box(name + "_head", (0.34, 0.18, 0.12), (x, base + 1.4, z + 0.36), M["seat"], 0.04)
-    hr.modifiers.new("sub", "SUBSURF").render_levels = 2
-    for s in (-1, 1):
-        tube(name + "_arm%d" % s, (x + s * 0.33, base + 0.76, z - 0.18), (x + s * 0.33, base + 0.76, z + 0.18), 0.035, M["vinyl"])
+    for p_ in o.data.polygons:
+        p_.use_smooth = True
+    return o
 
+
+def seat(name, x, z):
+    """Seats Inc. style engineer seat: suspension base, molded cushion with side bolsters,
+    wrap-around backrest with lumbar bolsters, separate headrest on posts, padded armrests."""
+    b = FLOOR
+    # suspension base
+    box(name + "_plate", (0.44, 0.025, 0.44), (x, b + 0.012, z), M["cast"], 0.008)
+    for k in range(5):
+        bpy.ops.mesh.primitive_torus_add(major_radius=0.105 - k * 0.004, minor_radius=0.018, major_segments=24, minor_segments=8, location=g(x, b + 0.05 + k * 0.03, z))
+        finish(bpy.context.active_object, M["rubber"])
+    cyl(name + "_post", 0.05, 0.16, (x, b + 0.27, z), M["steel"], bevel=0.004)
+    box(name + "_swivel", (0.36, 0.035, 0.36), (x, b + 0.36, z), M["cast"], 0.01)
+    for sx in (-1, 1):
+        box(name + "_rail", (0.03, 0.025, 0.44), (x + sx * 0.15, b + 0.39, z), M["steel"], 0.004)
+    box(name + "_lever", (0.05, 0.02, 0.1), (x + 0.24, b + 0.38, z - 0.18), M["black"], 0.006)
+    # seat pan + cushion with raised side bolsters and a waterfall front
+    box(name + "_pan", (0.5, 0.05, 0.48), (x, b + 0.42, z), M["cast"], 0.01)
+    soft(name + "_cushion", (0.44, 0.1, 0.46), (x, b + 0.49, z + 0.01), M["seat"], round_=0.45)
+    for sx in (-1, 1):
+        soft(name + "_bolster%d" % sx, (0.09, 0.12, 0.44), (x + sx * 0.23, b + 0.51, z + 0.01), M["vinyl"], rot=(0, 0, -sx * 0.18), round_=0.45)
+    soft(name + "_front", (0.48, 0.09, 0.08), (x, b + 0.475, z - 0.215), M["vinyl"], round_=0.5)
+    # backrest (reclined, wraps around the shoulders)
+    tilt = -0.17
+    cy, cz = b + 0.9, z + 0.27
+    box(name + "_backshell", (0.5, 0.68, 0.05), (x, cy, cz + 0.06), M["cast"], 0.02, rot_game=(tilt, 0, 0))
+    soft(name + "_back", (0.42, 0.64, 0.1), (x, cy, cz), M["seat"], rot=(tilt, 0, 0), round_=0.4, bend=0.25)
+    for sx in (-1, 1):
+        soft(name + "_lumbar%d" % sx, (0.08, 0.5, 0.13), (x + sx * 0.235, cy - 0.04, cz - 0.02), M["vinyl"], rot=(tilt, sx * 0.25, 0), round_=0.45)
+    # seams down the backrest
+    for sx in (-1, 1):
+        box(name + "_seam%d" % sx, (0.006, 0.58, 0.004), (x + sx * 0.12, cy, cz - 0.052), M["black"], 0.0, rot_game=(tilt, 0, 0))
+    # headrest on two posts
+    for sx in (-1, 1):
+        cyl(name + "_hpost%d" % sx, 0.008, 0.12, (x + sx * 0.08, cy + 0.38, cz + 0.07), M["chrome"])
+    soft(name + "_head", (0.3, 0.17, 0.1), (x, cy + 0.48, cz + 0.08), M["seat"], rot=(tilt, 0, 0), round_=0.45)
+    # padded armrests on hinge brackets
+    for sx in (-1, 1):
+        ax = x + sx * 0.31
+        box(name + "_armbr%d" % sx, (0.03, 0.18, 0.05), (ax, b + 0.66, z + 0.2), M["cast"], 0.008)
+        soft(name + "_arm%d" % sx, (0.075, 0.06, 0.36), (ax, b + 0.75, z + 0.04), M["vinyl"], round_=0.5)
 
 seat("eseat", 1.08, 1.32)
 seat("cseat", -0.95, 1.25)
@@ -730,6 +772,7 @@ def _bake_ao(img_path, size=1536):
         img.filepath_raw = img_path
         img.file_format = "PNG"
         img.save()
+    _bake_wear(img_path.replace("_ao.png", "_wear.png"), size)
     for mat in bpy.data.materials:
         if not mat.use_nodes:
             continue
@@ -738,6 +781,81 @@ def _bake_ao(img_path, size=1536):
         if an is None:
             continue
         nt.nodes.remove(an)
+    print("BAKED", img_path)
+
+
+def _bake_wear(img_path, size):
+    """R = worn edges, G = grime in corners and crevices, B = large blotchy variation."""
+    import os
+    if os.path.exists(img_path) and os.environ.get("REUSE_AO"):
+        return
+    img = bpy.data.images.new("cab_wear", size, size, alpha=False)
+    saved = {}
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+        if out is None:
+            continue
+        saved[mat.name] = [l.from_socket for l in out.inputs["Surface"].links]
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        bev = nt.nodes.new("ShaderNodeBevel")
+        bev.samples = 8
+        bev.inputs["Radius"].default_value = 0.015
+        dot = nt.nodes.new("ShaderNodeVectorMath")
+        dot.operation = "DOT_PRODUCT"
+        nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+        nt.links.new(bev.outputs["Normal"], dot.inputs[1])
+        edge = nt.nodes.new("ShaderNodeMapRange")
+        edge.inputs["From Min"].default_value = 0.995
+        edge.inputs["From Max"].default_value = 0.85
+        nt.links.new(dot.outputs["Value"], edge.inputs["Value"])
+        ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+        ao.samples = 12
+        ao.inputs["Distance"].default_value = 0.08
+        inv = nt.nodes.new("ShaderNodeMath")
+        inv.operation = "SUBTRACT"
+        inv.inputs[0].default_value = 1.0
+        nt.links.new(ao.outputs["AO"], inv.inputs[1])
+        tc = nt.nodes.new("ShaderNodeTexCoord")
+        nz = nt.nodes.new("ShaderNodeTexNoise")
+        nz.inputs["Scale"].default_value = 4.0
+        nz.inputs["Detail"].default_value = 8.0
+        nt.links.new(tc.outputs["Object"], nz.inputs["Vector"])
+        cc = nt.nodes.new("ShaderNodeCombineColor")
+        nt.links.new(edge.outputs["Result"], cc.inputs[0])
+        nt.links.new(inv.outputs["Value"], cc.inputs[1])
+        nt.links.new(nz.outputs["Fac"], cc.inputs[2])
+        em = nt.nodes.new("ShaderNodeEmission")
+        nt.links.new(cc.outputs["Color"], em.inputs["Color"])
+        nt.links.new(em.outputs["Emission"], out.inputs["Surface"])
+        bn = nt.nodes.new("ShaderNodeTexImage")
+        bn.image = img
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "lightmap"
+        nt.links.new(uvn.outputs["UV"], bn.inputs["Vector"])
+        for n in nt.nodes:
+            n.select = False
+        bn.select = True
+        nt.nodes.active = bn
+        bn.name = "wear_bake"
+    scene.cycles.samples = 16
+    bpy.ops.object.bake(type="EMIT", margin=6, use_clear=True)
+    img.filepath_raw = img_path
+    img.file_format = "PNG"
+    img.save()
+    for mat in bpy.data.materials:
+        if mat.name in saved:
+            nt = mat.node_tree
+            out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+            for l in list(out.inputs["Surface"].links):
+                nt.links.remove(l)
+            for src in saved[mat.name]:
+                nt.links.new(src, out.inputs["Surface"])
+            bn = nt.nodes.get("wear_bake")
+            if bn:
+                nt.nodes.remove(bn)
     print("BAKED", img_path)
 
 
@@ -827,6 +945,7 @@ cams = {
     "plan": ((0.0, 6.0, 1.3), (0.0, 0.0, 1.3), 0),
     "stand": ((0.86, 0.0, 1.12), (0.25, -0.75, 0.55), 66),
     "wide": ((0.05, 0.5, 2.65), (0.35, -0.75, 0.0), 80),
+    "seatv": ((1.1, -0.05, 0.62), (1.08, -0.7, 1.45), 75),
     "overhead": ((0.86, 0.0, 1.12), (0.4, 0.55, 0.2), 70),
 }
 cpos, ctarget, fov = cams.get(VIEW, cams["eng"])
@@ -857,7 +976,7 @@ scene.render.resolution_x = 1280
 scene.render.resolution_y = 720
 scene.view_settings.view_transform = "AgX"
 scene.view_settings.look = "AgX - Medium High Contrast"
-scene.view_settings.exposure = {"rear": 1.7, "plan": 0.6, "eng": 0.9}.get(VIEW, 0.8)   # expose for the interior like a camera would
+scene.view_settings.exposure = {"rear": 1.7, "plan": 0.6, "eng": 0.9, "seatv": 2.0}.get(VIEW, 0.8)   # expose for the interior like a camera would
 scene.render.filepath = OUT + "_" + LAYOUT + "_" + VIEW + ".png"
 if VIEW == "export":
     export_glb(OUT)
