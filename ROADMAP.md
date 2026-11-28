@@ -41,3 +41,14 @@ Living notes for future updates. Nothing here is built yet unless marked **(done
 - Pause → Main Menu / Save Game; Continue from title **(done, build 14)**
 - Real sign-in (Google Play Games / Steam) for cloud saves.
 - Game name: TBD ("High Iron" placeholder).
+
+## Cab feel (from design notes, Nov 27)
+- **Sound:** prime mover pitch by notch, turbo, air brake exhaust on set/release, dynamic brake grid fan, wheel/rail joints **(done)**.
+  To add: slack run-in/run-out clunks; a distinct exhaust for independent vs automatic; cab rattles that rise with speed.
+- **Motion:** speed sway and joint bumps **(done)**. To add: lurch when slack runs in or out, sway through switches, low engine vibration tied to notch.
+- **Live screens:** brake pipe, main reservoir, tractive effort, EOT pressure, alerter countdown, PTC on live SubViewports **(done)**.
+  To add: the new screen designs (cab_screens_design_v1).
+- **Cab layout:** rebuild every cab from the Blender designs, with the nose/restroom door, entry door and conductor's desk or jump seat placed correctly (SD70ACe locked; GP38-2 in progress).
+- **Engineer / conductor roles:** move between both seats inside the same shell.
+- **Controls:** notched throttle 1-8, dynamic brake, reverser, 26L/CCB handles with detents and a metal click per notch;
+  large drag zones for touch; thumbstick/trigger mapping on controllers (D-pad/buttons **done**).
