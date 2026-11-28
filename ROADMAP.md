@@ -62,3 +62,11 @@ Living notes for future updates. Nothing here is built yet unless marked **(done
 - **MU setup:** trailing units set up and isolated, MU and DPU linked from the cab.
 - **Camera snap views:** gauges, PTC screen, conductor desk, lean out the side window (for switching and shoving), look back at the train.
 - **Controller fine control:** triggers for brake lapping in small steps, detents felt as rumble; snap views on the stick or a hold-button menu.
+
+## Career mode
+Full spec in **CAREER.md**: persistent A-Line world, AI freight economy, 4 career tiers (hostler, local, mainline, intermodal),
+certifications and service record, coupler/drawbar failures, rough spur track, 6-axle curve limits, wayside defect detectors.
+
+## Cab design status
+- SD70ACe: layout locked (A AAR stand, C desktop).
+- GP38-2: layout approved. Restroom is a low step-down hatch under the windshields (awkward for tall crew). Next: fine detail.
