@@ -6,6 +6,8 @@ import bpy, bmesh, sys, math
 from mathutils import Vector
 OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "/tmp/blk"
 MODEL = sys.argv[sys.argv.index("--") + 2] if "--" in sys.argv and len(sys.argv) > sys.argv.index("--") + 2 else "sd70ace"
+EXPORT = "export" in sys.argv        # write the lite cab .glb (OUT is the file path) instead of review renders
+LHF = "lhf" in sys.argv              # GP38 long hood forward: furniture turned to face the back wall
 I = 0.0254
 
 # ---- dimensions (inches) ----
@@ -86,16 +88,41 @@ for o in list(bpy.data.objects):
 scene = bpy.context.scene
 COL = {}
 
+ROLE = {}
+FURN = [False]
+
 def mat(name, rgb):
-    if name not in COL:
-        m = bpy.data.materials.new(name)
+    key = tuple(round(c, 3) for c in rgb)
+    nm = ROLE.get(key, "c%02x%02x%02x" % tuple(int(c * 255) for c in rgb))
+    if nm not in COL:
+        m = bpy.data.materials.new(nm)
         m.diffuse_color = (*rgb, 1)
-        COL[name] = m
-    return COL[name]
+        m.use_nodes = True
+        bsdf = m.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            lin = tuple((c / 12.92) if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb)   # display colour -> linear
+            bsdf.inputs["Base Color"].default_value = (*lin, 1)
+            bsdf.inputs["Roughness"].default_value = 0.6 if nm != "screen" else 0.3
+            if nm in ("steel", "chrome"):
+                bsdf.inputs["Metallic"].default_value = 0.8
+        COL[nm] = m
+    return COL[nm]
 
 def finish(o, name, rgb):
     o.name = name
-    o.data.materials.append(mat(name.split("_")[0], rgb))
+    o.data.materials.append(mat(name, rgb))
+    o["furn"] = FURN[0]
+    return o
+
+def bevel(o, r=0.35):
+    """Soft rounded edges for the lite look (furniture only; walls stay crisp)."""
+    if FURN[0]:
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        b = o.modifiers.new("bevel", "BEVEL")
+        b.width = r * I
+        b.segments = 2
+        b.limit_method = "ANGLE"
     return o
 
 def box(name, x0, x1, y0, y1, z0, z1, rgb=(0.7, 0.7, 0.7)):
@@ -103,7 +130,58 @@ def box(name, x0, x1, y0, y1, z0, z1, rgb=(0.7, 0.7, 0.7)):
     o = bpy.context.object
     o.scale = ((x1 - x0) * I, (y1 - y0) * I, (z1 - z0) * I)
     o.location = ((x0 + x1) / 2 * I, (y0 + y1) / 2 * I, (z0 + z1) / 2 * I)
-    return finish(o, name, rgb)
+    finish(o, name, rgb)
+    return bevel(o, min(0.6, (x1 - x0) / 4, (y1 - y0) / 4, (z1 - z0) / 4))
+
+CUTTERS = []
+
+def cutter(pts, depth_vec):
+    """Prism that punches a window opening through walls and gasket plates."""
+    o = prism("cut%d" % len(CUTTERS), pts, depth_vec, (1, 0, 1))
+    o.hide_render = True
+    o.display_type = "WIRE"
+    o["cutter"] = True
+    CUTTERS.append(o)
+    return o
+
+def cut_box(x0, x1, y0, y1, z0, z1):
+    return cutter([(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1)], (0, y1 - y0, 0))
+
+def lever(shaft_name, grip_name, P, d, length, z, rgb_knob=(0.08, 0.08, 0.08)):
+    """Handle that swings about a vertical shaft at P (x,y inches) at height z; grip points along d."""
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.45 * I, depth=2.2 * I, vertices=12,
+                                        location=(P[0] * I, P[1] * I, (z + 0.5) * I))
+    finish(bpy.context.object, shaft_name, (0.55, 0.55, 0.57))
+    a = math.atan2(d[1], d[0])
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    g = bpy.context.object
+    g.scale = (length * I, 0.9 * I, 0.9 * I)
+    g.rotation_euler.z = a
+    g.location = ((P[0] + d[0] * length / 2) * I, (P[1] + d[1] * length / 2) * I, (z + 1.2) * I)
+    finish(g, grip_name, rgb_knob)
+    bevel(g, 0.3)
+
+def screen_plane(name, c, w, h, tilt=0.0, yaw=0.0):
+    """Live display quad (UV 0..1, upright), facing the rear (toward the crew)."""
+    bpy.ops.mesh.primitive_plane_add(size=1, location=(c[0] * I, c[1] * I, c[2] * I))
+    o = bpy.context.object
+    o.scale = (w * I, h * I, 1)
+    o.rotation_euler = (math.radians(90 - tilt), 0, math.radians(yaw))
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return finish(o, name, (0.1, 0.3, 0.45))
+
+def gauge(name, c, r, yaw, matname=None):
+    """Round gauge face; material g_speed / g_er / g_mr gets live needles in the game."""
+    bpy.ops.mesh.primitive_cylinder_add(radius=r * I, depth=0.4 * I, vertices=28,
+                                        location=(c[0] * I, c[1] * I, c[2] * I), rotation=(math.radians(90), 0, math.radians(yaw)))
+    o = bpy.context.object
+    o.name = name
+    m = bpy.data.materials.new(matname or "gauge_face")
+    m.use_nodes = True
+    m.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.78, 0.78, 0.72, 1)
+    o.data.materials.append(m)
+    o["furn"] = FURN[0]
+    return o
 
 def prism(name, pts, depth_vec, rgb):
     """Polygon (list of (x,y,z) inches) extruded by depth_vec (inches)."""
@@ -155,6 +233,12 @@ WALL = (0.80, 0.76, 0.66)
 BROWN = (0.42, 0.30, 0.20)
 DARK = (0.14, 0.14, 0.15)
 GLASS = (0.55, 0.75, 0.9)
+for _rgb, _nm in ((WALL, "wall"), (BROWN, "console"), (DARK, "panel"), (GLASS, "glass"), ((0.08, 0.08, 0.08), "gasket"),
+                  ((0.12, 0.12, 0.13), "seat"), ((0.40, 0.40, 0.42), "floor"), ((0.9, 0.88, 0.82), "ceil"),
+                  ((0.86, 0.83, 0.76), "overhead"), ((0.1, 0.3, 0.45), "screen"), ((0.55, 0.5, 0.42), "door"),
+                  ((0.6, 0.55, 0.45), "door"), ((0.13, 0.13, 0.14), "stand"), ((0.62, 0.55, 0.45), "hood"),
+                  ((0.55, 0.55, 0.57), "steel"), ((0.95, 0.8, 0.1), "yellow")):
+    ROLE[tuple(round(c, 3) for c in _rgb)] = _nm
 T = 3.0
 
 def rake_y(z):
@@ -217,6 +301,7 @@ if MODEL == "gp38":
         prism("outframe%d" % sx, [(x, -0.7, z) for x, z in fr], (0, -0.2, 0), (0.08, 0.08, 0.08))
         gl = rounded([(xa, OUT_Z0), (xb, OUT_Z0), (xb, OUT_Z1), (xa, OUT_Z1)], 3.0)
         prism("outglass%d" % sx, [(x, -1.0, z) for x, z in gl], (0, -0.2, 0), GLASS)
+        cutter([(x, -2.0, z) for x, z in gl], (0, T + 4, 0))
 # raked upper front wall, two halves meeting at the centre post
 ztop = CEIL_C + 1
 up = [(0, SILL), (T, SILL), (T + rake_y(ztop), ztop), (rake_y(ztop), ztop)]
@@ -232,6 +317,7 @@ for s in (-1, 1):
     if s < 0:
         pts.reverse()
     prism("glass%d" % s, pts, (0, -0.4, 0), GLASS)
+    cutter([(x * s, front_y(x, z) - 2, z) for x, z in pts2][::(1 if s > 0 else -1)], (0, T + 4, 0))
     big = rounded([(xi - 1.2, SILL - 1.2), (xo + 1.2, SILL + WIN_LIFT - 1.2), (xo + 1.2, SILL + WIN_H_OUT + 1.2), (xi - 1.2, SILL + WIN_H_IN + 1.2)], 6.0)
     fp = [(x * s, front_y(x, z) - 0.05, z) for x, z in big]
     if s < 0:
@@ -270,8 +356,10 @@ else:
     box("back_c", -16, 22, BW, -L, 0, CEIL_C, WALL)
     box("back_door", 22, 48, BW, -L, 0, 76, (0.55, 0.5, 0.42))
     box("back_doorwin", 28, 42, BW - 0.5, -L + 0.5, 50, 68, GLASS)
+    cut_box(28, 42, BW - 2, -L + 2, 50, 68)
     box("back_r", 48, HW, BW, -L, 0, CEIL_C, WALL)
     box("back_win", -44, -24, BW - 0.5, -L + 0.5, 46, 66, GLASS)
+    cut_box(-44, -24, BW - 2, -L + 2, 46, 66)
 
 # side windows, same on both sides (per the SD70ACe-T4 photo): a narrow pane at the front,
 # a two-pane sliding window in the middle, a narrow pane at the rear, set high in the wall
@@ -282,6 +370,7 @@ for sd in (-1, 1):
         prism("sideframe_%d%d" % (sd, k), [(wx - 0.3 * sd, y, z) for y, z in fr], (-0.4 * sd, 0, 0), (0.08, 0.08, 0.08))
         gl = rounded([(yr, SW_BOT), (yf, SW_BOT), (yf, SW_TOP), (yr, SW_TOP)], 2.0)
         prism("sideglass_%d%d" % (sd, k), [(wx - 0.75 * sd, y, z) for y, z in gl], (-0.2 * sd, 0, 0), GLASS)
+        cutter([(wx - 2 * sd, y, z) for y, z in gl], ((T + 4) * sd, 0, 0))
     # slider track/handle rail under the middle pair
     box("siderail_%d" % sd, wx - (1.6 if sd > 0 else -0.4) , wx - (0.4 if sd > 0 else -1.6), SIDE_PANES[SLIDE[1]][1], SIDE_PANES[SLIDE[0]][0], SW_BOT - 3, SW_BOT - 1.5, (0.3, 0.3, 0.3))
 
@@ -298,26 +387,38 @@ def rbox(name, C, ang, u0, u1, v0, v1, z0, z1, rgb):
     o.rotation_euler.z = a
     return finish(o, name, rgb)
 
+FURN[0] = True
 if MODEL == "gp38":
     # freestanding EMD AAR stand, 45 deg, face toward the engineer (rear-right)
     SC, SA = (14.0, -26.0), 45.0
     STK = (0.13, 0.13, 0.14)
     rbox("stand_E", SC, SA, -16, 16, -16, 0, 0, 36, STK)                     # main body
     rbox("standbrake", SC, SA, -16, -5, -16, 0, 36, 46, STK)                  # 26-L brake column (engineer's left)
-    rbox("brake_auto", SC, SA, -14, -8, 0, 7, 36, 38, (0.6, 0.15, 0.1))       # automatic brake handle
-    rbox("brake_ind", SC, SA, -14, -8, 0, 6, 30, 32, (0.25, 0.25, 0.27))      # independent brake handle
     rbox("standface", SC, SA, -4, 14, 0, 0.4, 20, 35, DARK)                   # controller: DB / throttle / reverser
-    for k, z in enumerate((32, 27.5, 23)):
-        rbox("lever%d" % k, SC, SA, 9, 12, 0.4, 6, z, z + 1.2, (0.05, 0.05, 0.05))
+    _a = math.radians(SA)
+    _U = (math.cos(_a), math.sin(_a))
+    _N = (math.sin(_a), -math.cos(_a))
+    def at(u, v):
+        return (SC[0] + _U[0] * u + _N[0] * v, SC[1] + _U[1] * u + _N[1] * v)
+    lever("st_db", "st_db_k", at(10, 1.0), _N, 6.0, 31.5)                    # dynamic brake (top)
+    lever("st_thr", "st_thr_g", at(10, 1.0), _N, 6.5, 27.0)                  # throttle (middle)
+    rbox("reverser", SC, SA, 8.5, 11.5, 0.4, 4, 22.5, 23.7, (0.05, 0.05, 0.05))
+    lever("b26_auto", "b26_auto_k", at(-11, 1.0), _N, 7.0, 36.5, (0.6, 0.15, 0.1))   # 26-L automatic
+    lever("b26_ind", "b26_ind_k", at(-11, 1.0), _N, 6.0, 30.5)                       # 26-L independent
+    rbox("st_alerter", SC, SA, 1.5, 3.5, 0.4, 1.2, 30, 32, (0.95, 0.8, 0.1))
     rbox("gaugepanel", SC, SA, -5, 16, -10, -4, 36, 50, (0.2, 0.2, 0.22))     # air gauges, ammeter
-    for k in range(4):
-        rbox("gauge%d" % k, SC, SA, -3 + k * 4.8, 1 + k * 4.8, -4, -3.6, 42, 46.5, (0.85, 0.85, 0.8))
+    for nm, u, z, r, mn in (("g_mr_face", -1.5, 43.0, 2.3, "g_mr"), ("g_er_face", 4.0, 43.0, 2.3, "g_er"),
+                            ("g_amp_face", 9.5, 43.0, 2.1, "gauge_face"), ("g_speed_face", 14.0, 46.5, 1.6, "g_speed")):
+        q = at(u, -3.6)
+        gauge(nm, (q[0], q[1], z), r, SA, mn)
     rbox("radio", SC, SA, -16, -5, -14, -2, 46, 52, (0.08, 0.08, 0.08))
     # heater cabinet ahead of the engineer by the right wall, extinguisher by the hatch
     box("heater", HW - 19, HW, -18, -2, 0, 28, (0.75, 0.75, 0.72))
     box("extinguisher", -18, -14, -18, -14, 0, 16, (0.8, 0.1, 0.1))
     # electrical locker on the back wall, floor to ceiling
+    FURN[0] = False
     box("locker", -23, 23, -L, -L + 14, 0, CEIL_C - 1, (0.78, 0.76, 0.70))
+    FURN[0] = True
     for nm, cx, fy in (("seat_E", SEAT_CX, SEAT_FRONT), ("seat_C", -HW + 22, 30.0), ("seat_J", -HW + 22, 54.0)):
         box(nm, cx - SEAT_W / 2, cx + SEAT_W / 2, -fy - SEAT_D, -fy, 0, SEAT_H, (0.12, 0.12, 0.13))
         box(nm + "back", cx - SEAT_W / 2, cx + SEAT_W / 2, -fy - SEAT_D - 3, -fy - SEAT_D, SEAT_H, SEAT_H + 26, (0.12, 0.12, 0.13))
@@ -328,10 +429,14 @@ else:
     loft("deskbase_E", [(0, 0), (-DESK_D + 4, 0), (-DESK_D + 4, DESK_H - 1.5), (0, DESK_H - 1.5)], DESK_X0 + 2, HW, BROWN)
     loft("hood_E", [(0, DESK_H), (-9, DESK_H), (-4, HOOD_H), (0, HOOD_H)], DESK_X0, HW, (0.62, 0.55, 0.45))
     SCR_W = 12.5 if MODEL == "es44" else 11.5
+    SCR_NAMES = ("smart_scr0", "smart_scr1") if MODEL == "es44" else ("screen0", "screen1")
     for k in range(2):
         x0 = DESK_X0 + 3 + k * (SCR_W + 1.5)
-        loft("fire_%d" % k, [(-9.2, DESK_H + 1.2), (-8.8, DESK_H + 1.2), (-4.4, DESK_H + 10.2), (-4.8, DESK_H + 10.2)],
-                   x0, x0 + SCR_W, (0.1, 0.3, 0.45))
+        cx = x0 + SCR_W / 2
+        zc = (DESK_H + HOOD_H) / 2 + 0.3
+        yc = -9 + 5 * (zc - DESK_H) / (HOOD_H - DESK_H) - 0.25 + vee(cx)
+        tilt = math.degrees(math.atan2(5, HOOD_H - DESK_H))
+        screen_plane(SCR_NAMES[k], (cx, yc, zc), SCR_W - 1.0, min(HOOD_H - DESK_H - 2.0, (SCR_W - 1.0) * 0.78), tilt, -VEE)
     if MODEL == "es44":
         # GE stand: tall cabinet on the engineer's left, joined to the desk; the control face
         # (throttle + blue CCB brake valves) is set into its right side, angled toward the seat
@@ -339,24 +444,60 @@ else:
         box("stand_E", STAND_X0, sx1, STAND_Y1, STAND_Y0 + vee(STAND_X0), 0, STAND_H, BROWN)
         face = [(sx1 + 0.2, -6, 20), (sx1 + 0.2, -6, 41), (sx1 - 3.5, -31, 41), (sx1 - 3.5, -31, 20)]
         prism("standface", face, (0.4, 0, 0), DARK)
-        box("ccb", sx1 - 2.2, sx1 + 0.8, -26, -14, 26, 36, (0.15, 0.3, 0.7))
+        box("ccb", sx1 - 0.6, sx1 + 0.3, -27, -15, 26, 37, (0.15, 0.3, 0.7))
         box("standradio", sx1 - 0.2, sx1 + 0.6, -40, -32, 30, 40, DARK)
-        box("standscreen", STAND_X0 + 3, STAND_X0 + 15, -9, -6, STAND_H, STAND_H + 10, (0.1, 0.3, 0.45))
+        box("standpod", STAND_X0 + 2, STAND_X0 + 16, -10, -5, STAND_H, STAND_H + 11, DARK)
+        screen_plane("wab_scr", (STAND_X0 + 9, -10.2, STAND_H + 5.5), 11, 8.5, 8)
+        lever("ge_lever0", "ge_grip0", (sx1 + 0.6, -11), (1, 0), 5.5, 36.5)       # throttle
+        lever("ge_lever1", "ge_grip1", (sx1 + 0.6, -11), (1, 0), 5.0, 33.0)       # dynamic brake
+        lever("ccb_auto", "ccb_auto_k", (sx1 + 0.6, -21), (1, 0), 6.0, 33.0, (0.05, 0.05, 0.05))
+        lever("ccb_ind", "ccb_ind_k", (sx1 + 0.6, -21), (1, 0), 5.0, 28.5)
+        box("desk_btn1", DESK_X0 + 2, DESK_X0 + 4, -15, -13, DESK_H, DESK_H + 0.8, (0.95, 0.8, 0.1))
     else:
         # EMD AAR control stand on the engineer's left, clear of the stairwell (small base bump into it)
         box("stand_E", STAND_X0, STAND_X0 + STAND_D, STAND_Y1, STAND_Y0, 0, STAND_H, BROWN)
         box("standbump", STAND_X0 - 2, STAND_X0, STAND_Y1 + 6, STAND_Y1 + 16, 0, 6, BROWN)
         side_prism("standface", [(STAND_Y0 - 2, STAND_H), (STAND_Y1 + 4, STAND_H), (STAND_Y1 + 8, STAND_H + 4), (STAND_Y0 - 2, STAND_H + 4)],
                    STAND_X0 + 1, STAND_X0 + STAND_D - 1, DARK)
-        box("standscreen", STAND_X0 + 2, STAND_X0 + STAND_D - 2, STAND_Y0 - 4, STAND_Y0 - 1, STAND_H + 4, STAND_H + 14, (0.1, 0.3, 0.45))
+        box("standpod", STAND_X0 + 1.5, STAND_X0 + STAND_D - 1.5, STAND_Y0 - 4, STAND_Y0 - 0.5, STAND_H + 3.5, STAND_H + 14.5, DARK)
+        screen_plane("stscreen", (STAND_X0 + STAND_D / 2, STAND_Y0 - 4.2, STAND_H + 9), STAND_D - 5, 8.5, 5)
+        sxr = STAND_X0 + STAND_D
+        lever("dynbrake_shaft", "dynbrake_knob", (sxr - 2, -12), (1, 0), 5.5, STAND_H + 4.3)
+        lever("throttle_shaft", "throttle_grip", (sxr - 2, -17), (1, 0), 6.0, STAND_H + 4.3)
+        lever("brake0_shaft", "brake0_knob", (sxr - 2, -28), (1, 0), 6.5, STAND_H + 4.3, (0.6, 0.15, 0.1))
+        lever("brake1_shaft", "brake1_knob", (sxr + 0.3, -33), (1, 0), 5.5, STAND_H - 4.0)
+        box("alerter", sxr, sxr + 0.8, -23, -21, 30, 32, (0.95, 0.8, 0.1))
     # conductor desk: narrow console at the left front with a radio pod
     loft("desk_C", [(0, 0), (-18, 0), (-18, DESK_H), (0, DESK_H)], -HW, DL - 2, BROWN)
     loft("radio_C", [(-1, DESK_H), (-6, DESK_H), (-6, DESK_H + 12), (-1, DESK_H + 12)], -HW + 4, -HW + 20, (0.62, 0.55, 0.45))
+    _cx = -HW + 12
+    screen_plane("cscreen", (_cx, -6.25 + vee(_cx), DESK_H + 6), 10, 8, 0, VEE)
     # seats (with seat backs) + jump seat behind the conductor
     for nm, cx, fy in (("seat_E", SEAT_CX, SEAT_FRONT), ("seat_C", -HW + 22, 30.0), ("seat_J", -HW + 16, 66.0)):
         box(nm, cx - SEAT_W / 2, cx + SEAT_W / 2, -fy - SEAT_D, -fy, 0, SEAT_H, (0.12, 0.12, 0.13))
         box(nm + "back", cx - SEAT_W / 2, cx + SEAT_W / 2, -fy - SEAT_D - 3, -fy - SEAT_D, SEAT_H, SEAT_H + 26, (0.12, 0.12, 0.13))
     box("cooler", -HW + 30, -HW + 48, -82, -70, 0, 14, (0.85, 0.2, 0.2))
+FURN[0] = False
+
+# ---- punch the window openings through the walls and gasket plates
+cut_col = bpy.data.collections.new("cutters")
+scene.collection.children.link(cut_col)
+for c in CUTTERS:
+    for uc in list(c.users_collection):
+        uc.objects.unlink(c)
+    cut_col.objects.link(c)
+for o in list(bpy.data.objects):
+    if o.type != "MESH" or o.get("cutter") or o.get("furn"):
+        continue
+    nm = o.name
+    if "glass" in nm or "_win" in nm or "doorwin" in nm:
+        continue
+    if nm.startswith(("front_", "wall_", "back_", "gasket", "sideframe_", "outframe", "cabdoor")):
+        b = o.modifiers.new("win", "BOOLEAN")
+        b.operation = "DIFFERENCE"
+        b.operand_type = "COLLECTION"
+        b.collection = cut_col
+        b.solver = "EXACT"
 
 # ---- plan labels ----
 if MODEL == "gp38":
@@ -385,6 +526,48 @@ else:
     label('WINDSHIELDS: V %d deg (centre post forward), lean back %d deg' % (VEE, RAKE), 0, 9, size=3.2)
     label('%s   INSIDE WIDTH %d"' % ("GE ES44AC" if MODEL == "es44" else "EMD SD70ACe", W), 0, -L - 10, size=4)
     label('%d" front to back' % L, -HW - 14, -L / 2, size=3.4, rot=90)
+
+# ---- lite cab export ----
+if EXPORT:
+    import json
+    for o in list(bpy.data.objects):
+        if o.get("plan_only") or o.name == "eye":
+            bpy.data.objects.remove(o)
+    # apply modifiers (bevels, window booleans), then drop the cutters
+    for o in list(bpy.data.objects):
+        if o.type == "MESH" and o.modifiers and not o.get("cutter"):
+            bpy.context.view_layer.objects.active = o
+            for md in list(o.modifiers):
+                bpy.ops.object.modifier_apply(modifier=md.name)
+    for c in CUTTERS:
+        bpy.data.objects.remove(c)
+    root = bpy.data.objects.new("cab_lite", None)
+    scene.collection.objects.link(root)
+    furn = bpy.data.objects.new("furniture", None)
+    scene.collection.objects.link(furn)
+    furn.parent = root
+    furn.location = (0, -L / 2 * I, 0)
+    for o in list(bpy.data.objects):
+        if o.type != "MESH":
+            continue
+        par = furn if o.get("furn") else root
+        mw = o.matrix_world.copy()
+        o.parent = par
+        bpy.context.view_layer.update()
+        o.matrix_world = mw
+    if LHF:
+        furn.rotation_euler.z = math.pi
+    root.location.z = -1.35          # Blender cabs: floor 1.35 m below the model origin (game frame)
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in bpy.data.objects:
+        if o.type in ("MESH", "EMPTY"):
+            o.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB", use_selection=True, export_apply=True, export_yup=True)
+    eye_x, eye_back = SEAT_CX, SEAT_FRONT + SEAT_D / 2 - 2
+    info = {"eye": [round(eye_x * I, 3), round(EYE_Z * I - 1.35, 3), round(eye_back * I, 3)],
+            "cab_len": round(L * I, 3), "outer_len": round((L + T) * I, 3)}
+    print("LITE_INFO", json.dumps(info))
+    sys.exit(0)
 
 # ---- render ----
 scene.render.engine = "BLENDER_WORKBENCH"

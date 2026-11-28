@@ -387,6 +387,11 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false, lay
 	layout = lay if lay != "" else (LAYOUTS[kind][0] if LAYOUTS.has(kind) else "")
 	var spec := hd_spec(kind, layout)
 	hd = not spec.is_empty()
+	lite = false
+	if spec.is_empty() and LITE_SPECS.has(kind) and ResourceLoader.exists(LITE_SPECS[kind]["path"]):
+		spec = LITE_SPECS[kind]
+		lite = true
+	var modelled := not spec.is_empty()
 	model = kind
 	has_db = dyn_brake
 	pickables.clear()
@@ -398,7 +403,7 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false, lay
 	lever_db = null
 	var L := Node3D.new()
 	model_interior = false
-	if (kind == "classic" or kind == "classic_lhf") and not exterior_only and hd:
+	if (kind == "classic" or kind == "classic_lhf") and not exterior_only and modelled:
 		_gp38(L, kind == "classic_lhf", spec)
 		return L
 	if kind == "classic" or kind == "classic_lhf":
@@ -412,20 +417,20 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false, lay
 		else:
 			_cab_box(L, 3.02, 2.6)
 	elif kind == "sd70ace":
-		eye = Vector3(1.08, -0.4, 1.15) if hd else Vector3(0.86, 0.0, 1.12)
+		eye = spec.get("eye", Vector3(1.08, -0.4, 1.15)) if modelled else Vector3(0.86, 0.0, 1.12)
 		_exterior_modern(L)
 		if exterior_only:
 			_cab_box(L, 3.16, 2.8)
-		elif hd:
+		elif modelled:
 			_interior_model(L, spec)
 		else:
 			_interior_aar(L)
 	else:
-		eye = Vector3(1.08, -0.4, 1.15) if hd else Vector3(0.86, 0.0, 1.08)
+		eye = spec.get("eye", Vector3(1.08, -0.4, 1.15)) if modelled else Vector3(0.86, 0.0, 1.08)
 		_exterior_modern(L)
 		if exterior_only:
 			_cab_box(L, 3.16, 2.75)
-		elif hd:
+		elif modelled:
 			_interior_model(L, spec)
 		else:
 			_interior_modern(L)
@@ -463,7 +468,7 @@ func _long_hood(L: Node, deck_y: float, hood_w: float, r_h: float = 1.65) -> voi
 		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
 
 func _exterior_modern(L: Node) -> void:
-	if (model == "sd70ace" or model == "modern") and hd:
+	if (model == "sd70ace" or model == "modern") and (hd or lite):
 		_exterior_sd70(L)
 		return
 	var deck_y := -2.05
@@ -487,18 +492,17 @@ func _exterior_modern(L: Node) -> void:
 ## forward the whole unit (cab, hoods, trucks) is turned around so the long hood leads; the
 ## LHF model already has the stand and seats facing its back wall, which then faces forward.
 func _gp38(L: Node, lhf: bool, spec: Dictionary) -> void:
-	const CAB_LEN := 2.3
+	var cab_len: float = spec.get("cab_len", 2.3)
 	var holder := Node3D.new()
 	L.add_child(holder)
-	_exterior_gp38(holder)
+	_exterior_gp38(holder, spec.get("outer_len", 2.3))
 	_interior_model(holder, spec)
-	eye = Vector3(0.8, -0.65, 1.15)
+	eye = spec.get("eye", Vector3(0.8, -0.65, 1.15))
 	if lhf:
 		holder.rotation.y = PI
-		holder.position.z = CAB_LEN
+		holder.position.z = cab_len
 
-func _exterior_gp38(L: Node) -> void:
-	const CAB_LEN := 2.3
+func _exterior_gp38(L: Node, CAB_LEN: float = 2.3) -> void:
 	var rail := -3.75
 	var deck_y := rail + 1.55
 	var sh_top := -1.12
@@ -1173,6 +1177,23 @@ const CAB_SPECS := {
 	"classic_lhf": {"path": "res://models/gp38_factory_lhf.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
 		"screens": {}, "alerter": "st_alerter"},
 }
+## Lite cabs: built into the app (models_lite/), made from the same approved layout frames as the
+## HD cabs (tools/cabdesign/blockout.py ... export). Same layout, simpler shapes and flat colours.
+## Used whenever the HD pack for that locomotive isn't installed.
+const LITE_SPECS := {
+	"sd70ace": {"path": "res://models_lite/sd70ace.glb", "drop": -0.4, "levers": STAND_LEVERS, "axis": "y",
+		"screens": {"screen0": "eng", "screen1": "ptc", "stscreen": "ptc", "cscreen": "ptc"}, "alerter": "alerter",
+		"eye": Vector3(1.016, -0.455, 1.067)},
+	"modern": {"path": "res://models_lite/es44ac.glb", "drop": -0.4, "levers": GE_LEVERS, "axis": "y",
+		"screens": {"smart_scr0": "eng", "smart_scr1": "ptc", "wab_scr": "ptc", "cscreen": "ptc"}, "alerter": "desk_btn1",
+		"eye": Vector3(0.914, -0.455, 1.118)},
+	"classic": {"path": "res://models_lite/gp38.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
+		"screens": {}, "alerter": "st_alerter", "eye": Vector3(0.838, -0.705, 1.118), "cab_len": 1.981, "outer_len": 2.057},
+	"classic_lhf": {"path": "res://models_lite/gp38_lhf.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
+		"screens": {}, "alerter": "st_alerter", "eye": Vector3(0.838, -0.705, 1.118), "cab_len": 1.981, "outer_len": 2.057},
+}
+var lite := false
+
 ## Cab layouts the player can pick per locomotive (first = default). GP38 options are paint schemes.
 const LAYOUTS := {"sd70ace": ["stand", "desktop"], "modern": ["ge", "desktop"], "classic": ["factory", "repaint"], "classic_lhf": ["factory", "repaint"]}
 const LAYOUT_NAMES := {"stand": "AAR CONTROL STAND", "desktop": "DESKTOP CONSOLE", "ge": "GE CONTROL STAND", "factory": "EMD FACTORY TAN", "repaint": "GREEN REPAINT"}
@@ -1226,7 +1247,7 @@ func _interior_model(p: Node, spec: Dictionary) -> void:
 	lever_db = piv.get("db") if has_db else null
 	lever_auto = piv.get("auto")
 	lever_ind = piv.get("ind")
-	_ao_tex = load(path.replace(".glb", "_ao.png"))
+	_ao_tex = load(path.replace(".glb", "_ao.png")) if ResourceLoader.exists(path.replace(".glb", "_ao.png")) else null
 	_wear_tex = load(path.replace(".glb", "_wear.png")) if ResourceLoader.exists(path.replace(".glb", "_wear.png")) else null
 	_fix_materials(inst)
 	# hand the textured screens over to the live displays
@@ -1313,6 +1334,11 @@ func _fix_materials(n: Node) -> void:
 				mi.set_surface_override_material(i, _wear_material(mat as StandardMaterial3D))
 			elif mat is StandardMaterial3D:
 				var sm := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+				if lite and layout == "repaint":
+					if mname == "wall" or mname == "overhead":
+						sm.albedo_color = Color(0.36, 0.47, 0.37)
+					elif mname == "stand":
+						sm.albedo_color = Color(0.2, 0.2, 0.21)
 				if _ao_tex and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2:
 					sm.ao_enabled = true
 					sm.ao_texture = _ao_tex
