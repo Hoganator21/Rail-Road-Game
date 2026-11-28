@@ -3,7 +3,7 @@ extends Node
 ## The app ships small; packs are .pck files downloaded to user://packs/ and mounted at
 ## startup with ProjectSettings.load_resource_pack, which overlays res://models/... etc.
 
-const PACK_VERSION := 1
+const PACK_VERSION := 2
 const BASE_URL := "https://github.com/Hoganator21/Rail-Road-Game/releases/download/content-packs/"
 const PACKS := {
 	"sd70ace": {"name": "EMD SD70ACe HD cab", "locos": ["sd70ace"]},

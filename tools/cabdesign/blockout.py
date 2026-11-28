@@ -8,6 +8,8 @@ OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "/tmp/blk"
 MODEL = sys.argv[sys.argv.index("--") + 2] if "--" in sys.argv and len(sys.argv) > sys.argv.index("--") + 2 else "sd70ace"
 EXPORT = "export" in sys.argv        # write the lite cab .glb (OUT is the file path) instead of review renders
 LHF = "lhf" in sys.argv              # GP38 long hood forward: furniture turned to face the back wall
+HD = "hd" in sys.argv                # HD cab: same frame + textured materials, detailed seats/stand/fittings, baked AO + wear
+REPAINT = "repaint" in sys.argv
 I = 0.0254
 
 # ---- dimensions (inches) ----
@@ -527,6 +529,250 @@ else:
     label('%s   INSIDE WIDTH %d"' % ("GE ES44AC" if MODEL == "es44" else "EMD SD70ACe", W), 0, -L - 10, size=4)
     label('%d" front to back' % L, -HW - 14, -L / 2, size=3.4, rot=90)
 
+
+# ---- HD: same approved frame, dressed with the detailed materials and fittings ----
+if HD:
+    import os
+    HDS = open("/home/claude/cabdesign/build_cab.py").read()
+    NS = {"bpy": bpy, "bmesh": bmesh, "math": math, "Vector": Vector, "TEX": "/home/claude/rail-road-game/godot/textures/",
+          "scene": scene, "col": scene.collection, "FLOOR": -1.35}
+    from mathutils import Euler
+    NS["Euler"] = Euler
+    exec("def g(x, y, z):\n    return Vector((x, -z, y))\n", NS)
+    exec(HDS[HDS.index("# ------------------------------------------------------------------ materials"):HDS.index("# ------------------------------------------------------------------ cab shell")], NS)
+    exec(HDS[HDS.index("def soft("):HDS.index("\n\nseat(")], NS)
+    exec(HDS[HDS.index("def _bake_ao("):HDS.index("# ------------------------------------------------------------------ world, lights, camera")]
+         .replace('if o.type != "MESH" or o.hide_render or o.name.startswith(skip)', 'if (o.type not in ("MESH", "EMPTY")) or o.hide_render or o.name.startswith(skip)'), NS)
+    M = NS["M"]
+    mat_col, mat_img, mat_tex = NS["mat_col"], NS["mat_img"], NS["mat_tex"]
+    STAINLESS = mat_col("stainless", (0.6, 0.6, 0.58), 0.38, 0.85)
+    WHITE = mat_col("cab_white", (0.75, 0.75, 0.72), 0.55)
+    DANGER = mat_img("danger", "/tmp/cabdesign/danger.png", 0.5)
+    GPSTAND = mat_tex("stand_k", "stand_brown.png", 1.5, 0.5, 0.25, tint=(0.17, 0.17, 0.18), bump=0.12) if REPAINT else M["stand"]
+    NS.update({"STAINLESS": STAINLESS, "WHITE": WHITE, "DANGER": DANGER, "STAND": GPSTAND})
+    if MODEL == "es44":
+        CONSOLE = mat_tex("console_ge", "stand_brown.png", 1.5, 0.45, 0.2, tint=(1.25, 0.95, 0.72))
+    else:
+        CONSOLE = M["stand"]
+    SCR = {"eng": mat_img("scr_eng", "/tmp/cabdesign/scr_eng.png", 0.2, emit=1.4), "ptc": mat_img("scr_ptc", "/tmp/cabdesign/scr_ptc.png", 0.2, emit=1.4)}
+    ROLE_HD = {"wall": M["wall"], "ceil": M["ceil"], "floor": M["floor"], "console": CONSOLE, "hood": CONSOLE,
+               "panel": M["console"], "glass": M["glass"], "gasket": M["rubber"], "overhead": M["wall"],
+               "door": M["wall"], "stand": GPSTAND, "steel": M["chrome"], "yellow": M["alerter"], "seat": M["seat"]}
+    # every blockout part: bake scale into the mesh so the box-projected textures come out at real size
+    for o in list(bpy.data.objects):
+        if o.type != "MESH" or o.get("cutter"):
+            continue
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        mname = o.active_material.name if o.active_material else ""
+        if mname in ROLE_HD:
+            o.data.materials.clear()
+            o.data.materials.append(ROLE_HD[mname])
+        elif mname.startswith("c"):
+            o.data.materials.clear()
+            o.data.materials.append(M["cast"])
+    for o in bpy.data.objects:
+        if o.name.startswith(("screen", "smart_scr", "stscreen", "wab_scr", "cscreen")) and o.type == "MESH":
+            o.data.materials.clear()
+            o.data.materials.append(SCR["eng" if o.name in ("screen0", "smart_scr0") else "ptc"])
+        if o.name == "cooler":
+            o.data.materials.clear()
+            o.data.materials.append(M["red"])
+        if o.name in ("heater", "locker"):
+            o.data.materials.clear()
+            o.data.materials.append(WHITE if o.name == "heater" else M["wall"])
+    if REPAINT:
+        GW = mat_tex("wall_g", "cab_wall_green.png", 1.6, 0.62, 0.05, bump=0.15)
+        GC = mat_tex("ceil_g", "ceiling_green.png", 1.4, 0.85, bump=0.25)
+        for o in bpy.data.objects:
+            if o.type == "MESH" and o.active_material in (M["wall"], M["ceil"]):
+                m0 = o.active_material
+                o.data.materials.clear()
+                o.data.materials.append(GW if m0 == M["wall"] else GC)
+
+    before = set(bpy.data.objects)
+
+    def track(furn):
+        """Mark everything made since the last call, shift it from the HD scripts' frame (floor at -1.35) onto ours."""
+        global before
+        for o in bpy.data.objects:
+            if o not in before:
+                if o.parent is None:
+                    o.location.z += 1.35
+                o["furn"] = furn
+        bpy.context.view_layer.update()
+        before = set(bpy.data.objects)
+
+    def G(x, y, z):
+        """blockout inches -> HD game metres"""
+        return (x * I, z * I - 1.35, -y * I)
+
+    # handles: chrome collar on each shaft, rounded grip + knob joined into the grip piece
+    def dress_lever(shaft, grip, knob_mat):
+        sh = bpy.data.objects.get(shaft)
+        gr = bpy.data.objects.get(grip)
+        if sh is None or gr is None:
+            return
+        sh.data.materials.clear()
+        sh.data.materials.append(M["chrome"])
+        gr.data.materials.clear()
+        gr.data.materials.append(M["grip"])
+        bpy.context.view_layer.update()
+        tip = gr.matrix_world @ Vector((max(v.co.x for v in gr.data.vertices), 0, 0))
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.95 * I, segments=16, ring_count=8, location=tip)
+        kb = bpy.context.object
+        kb.data.materials.append(knob_mat)
+        bpy.ops.object.select_all(action="DESELECT")
+        kb.select_set(True)
+        gr.select_set(True)
+        bpy.context.view_layer.objects.active = gr
+        bpy.ops.object.join()
+        for p_ in gr.data.polygons:
+            p_.use_smooth = True
+        bpy.ops.mesh.primitive_cylinder_add(radius=1.0 * I, depth=0.8 * I, vertices=20, location=sh.matrix_world @ Vector((0, 0, min(v.co.z for v in sh.data.vertices) + 0.4 * I)))
+        cl = bpy.context.object
+        cl.name = shaft + "_collar"
+        cl.data.materials.append(M["cast"])
+        cl["furn"] = sh.get("furn", False)
+
+    def disc(name, c, r, yaw, mkey, tilt=0.0):
+        """Textured round gauge face (planar UV, texture up = up) on a black can with a chrome ring."""
+        rot = (math.radians(90 - tilt), 0, math.radians(yaw))
+        n = Vector((0, 0, 1))
+        n.rotate(Euler(rot))
+        loc = Vector(c) * I
+        bpy.ops.mesh.primitive_cylinder_add(radius=r * 1.1 * I, depth=0.6 * I, vertices=32, location=loc - n * 0.3 * I, rotation=rot)
+        bpy.context.object.data.materials.append(M["black"])
+        bpy.ops.mesh.primitive_torus_add(major_radius=r * 1.06 * I, minor_radius=0.18 * I, major_segments=40, minor_segments=8, location=loc + n * 0.05 * I, rotation=rot)
+        bpy.context.object.data.materials.append(M["chrome"])
+        bpy.ops.mesh.primitive_circle_add(vertices=40, radius=r * I, fill_type="NGON", location=loc + n * 0.02 * I, rotation=rot)
+        f = bpy.context.object
+        f.name = name
+        f.data.uv_layers.new()
+        d = 2 * r * I
+        for li, loop in enumerate(f.data.loops):
+            co = f.data.vertices[loop.vertex_index].co
+            f.data.uv_layers.active.data[li].uv = (co.x / d + 0.5, co.y / d + 0.5)
+        f.data.materials.append(M[mkey])
+
+    def plane_on(name, c, w, h, mat, tilt=0.0, yaw=0.0):
+        o = screen_plane(name, c, w, h, tilt, yaw)
+        o.data.materials.clear()
+        o.data.materials.append(mat)
+        return o
+
+    def bezel(scr_name, w, h, depth=0.8):
+        """Black bezel behind a screen quad, slightly larger, with a row of soft keys underneath."""
+        sc = bpy.data.objects.get(scr_name)
+        if sc is None:
+            return
+        bpy.context.view_layer.update()
+        n = sc.matrix_world.to_3x3() @ Vector((0, 0, 1))
+        up = sc.matrix_world.to_3x3() @ Vector((0, 1, 0))
+        bpy.ops.mesh.primitive_cube_add(size=1, location=sc.matrix_world.translation - n.normalized() * depth / 2 * I - up.normalized() * 0.9 * I)
+        b = bpy.context.object
+        b.rotation_euler = sc.rotation_euler
+        b.scale = ((w + 2.0) * I, (h + 3.6) * I, depth * I)
+        b.data.materials.append(M["black"])
+        bv = b.modifiers.new("bv", "BEVEL")
+        bv.width = 0.3 * I
+        bv.segments = 2
+        fk = screen_plane(scr_name + "_keys", tuple(v / I for v in (sc.matrix_world.translation - up.normalized() * (h / 2 + 1.1) * I + n.normalized() * 0.02 * I)), w - 0.5, 1.1)
+        fk.rotation_euler = sc.rotation_euler
+        fk.data.materials.clear()
+        fk.data.materials.append(M["fkeys"])
+
+    if MODEL == "gp38":
+        # the detailed EMD AAR stand from the GP38 design, set on the approved spot and angle
+        for nm in ("stand_E", "standbrake", "standface", "reverser", "st_db", "st_db_k", "st_thr", "st_thr_g", "b26_auto",
+                   "b26_auto_k", "b26_ind", "b26_ind_k", "st_alerter", "gaugepanel", "g_mr_face", "g_er_face",
+                   "g_amp_face", "g_speed_face", "radio"):
+            o = bpy.data.objects.get(nm)
+            if o:
+                bpy.data.objects.remove(o)
+        G38 = open("/home/claude/cabdesign/build_gp38.py").read()
+        exec(G38[G38.index("def group("):G38.index("group(build_stand")], NS)
+        exec(G38[G38.index("VINYL = mat_col"):G38.index("# heater cabinet")], NS)
+        e = NS["group"](NS["build_stand"], G(6.93, -18.93, 0)[0:1] + (0.0,) + (G(6.93, -18.93, 0)[2],), -math.radians(45))
+        track(True)
+        for nm, cx, fy in (("eseat", SEAT_CX, SEAT_FRONT), ("cseat", -HW + 22, 30.0), ("cseat2", -HW + 22, 54.0)):
+            for o in list(bpy.data.objects):
+                if o.name in ("seat_" + {"eseat": "E", "cseat": "C", "cseat2": "J"}[nm], "seat_" + {"eseat": "E", "cseat": "C", "cseat2": "J"}[nm] + "back"):
+                    bpy.data.objects.remove(o)
+            NS["gp_seat"](nm, cx * I, (fy + SEAT_D / 2) * I)
+        track(True)
+        # heater grille, extinguisher, locker doors with HIGH VOLTAGE plates
+        box("heater_grille", HW - 16, HW - 3, -18.3, -18.0, 4, 10, (0.05, 0.05, 0.05))
+        FURN[0] = False
+        for k, (lx, lz) in enumerate(((-11.5, 18), (11.5, 18), (-11.5, 52), (11.5, 52))):
+            d_ = box("lk_door%d" % k, lx - 10.5, lx + 10.5, -L + 14, -L + 14.6, lz - 15, lz + 15, (0.78, 0.76, 0.70))
+            d_.data.materials.clear()
+            d_.data.materials.append(M["wall"])
+            plane_on("lk_danger%d" % k, (lx - 3, -L + 14.8, lz + 7), 6, 3, DANGER, 0, 180)
+            box("lk_handle%d" % k, lx + 7, lx + 8.2, -L + 14.6, -L + 15.8, lz - 3, lz + 3, (0.55, 0.55, 0.57))
+        FURN[0] = True
+    else:
+        for nm, cx, fy in (("eseat", SEAT_CX, SEAT_FRONT), ("cseat", -HW + 22, 30.0), ("cseat2", -HW + 16, 66.0)):
+            key = {"eseat": "E", "cseat": "C", "cseat2": "J"}[nm]
+            for o in list(bpy.data.objects):
+                if o.name in ("seat_" + key, "seat_" + key + "back"):
+                    bpy.data.objects.remove(o)
+            NS["seat"](nm, cx * I, (fy + SEAT_D / 2) * I)
+        track(True)
+        if MODEL == "es44":
+            levers = (("ge_lever0", "ge_grip0", M["grip"]), ("ge_lever1", "ge_grip1", M["grip"]),
+                      ("ccb_auto", "ccb_auto_k", M["knob_red"]), ("ccb_ind", "ccb_ind_k", M["grip"]))
+            scr = (("smart_scr0", SCR_W - 1.0), ("smart_scr1", SCR_W - 1.0), ("wab_scr", 11), ("cscreen", 10))
+            sx1 = STAND_X0 + STAND_D
+            plane_on("st_switches", (sx1 + 0.45, -35, 25), 9, 6, M["switches"], 0, 90)
+            for k, yy in enumerate((-21,)):
+                bpy.ops.mesh.primitive_cylinder_add(radius=2.6 * I, depth=1.6 * I, location=((sx1 + 0.8) * I, yy * I, 30.5 * I), rotation=(0, math.radians(90), 0))
+                bpy.context.object.data.materials.append(M["cast"])
+        else:
+            levers = (("throttle_shaft", "throttle_grip", M["grip"]), ("dynbrake_shaft", "dynbrake_knob", M["grip"]),
+                      ("brake0_shaft", "brake0_knob", M["knob_red"]), ("brake1_shaft", "brake1_knob", M["chrome"]))
+            scr = (("screen0", 10.5), ("screen1", 10.5), ("stscreen", STAND_D - 5), ("cscreen", 10))
+            sxr = STAND_X0 + STAND_D
+            box("notch_plate", sxr - 4.5, sxr - 0.5, -20, -9, STAND_H, STAND_H + 0.4, (0.05, 0.05, 0.05))
+            plane_on("st_switches", (sxr + 0.05, -10, 24), 10, 7, M["switches"], 0, 90)
+            for yy, zz in ((-28, STAND_H), (-33, STAND_H - 8.0)):
+                bpy.ops.mesh.primitive_cylinder_add(radius=3.2 * I, depth=1.6 * I, location=((sxr - 2 if zz == STAND_H else sxr + 0.4) * I, yy * I, (zz + 0.8) * I))
+                bpy.context.object.data.materials.append(M["cast"])
+            # handset in its cradle at the back of the stand
+            box("handset", STAND_X0 + 6, STAND_X0 + 9, STAND_Y1 + 2, STAND_Y1 + 10, STAND_H, STAND_H + 1.8, (0.05, 0.05, 0.05))
+        for sh, gr, km in levers:
+            dress_lever(sh, gr, km)
+        for nm, w in scr:
+            sc = bpy.data.objects.get(nm)
+            if sc:
+                bezel(nm, w, w * 0.75)
+        # desk dressing: alerter base, water bottle, track warrant
+        bx = DESK_X0 + 22
+        bpy.ops.mesh.primitive_cylinder_add(radius=1.3 * I, depth=8 * I, vertices=20, location=(bx * I, (-17 + vee(bx)) * I, (DESK_H + 4) * I))
+        bpy.context.object.data.materials.append(M["bottle"])
+        plane_on("warrant", (DESK_X0 + 10, -16 + vee(DESK_X0 + 10), DESK_H + 0.05), 8.5, 11, M["paper"], 90, -8)
+        plane_on("warrant_c", (-HW + 12, -13 + vee(-HW + 12), DESK_H + 0.05), 8.5, 11, M["paper"], 90, 5)
+        track(True)
+    # windshield wipers parked at the bottom of each pane, sun visors on rails, dome light
+    FURN[0] = False
+    if MODEL != "gp38":
+        for s_ in (-1, 1):
+            xm = s_ * (POST / 2 + WIN_W * 0.55)
+            yb = front_y(xm, SILL + 1.5) - 0.6
+            box("wiper_arm%d" % s_, xm - 0.4, xm + 0.4, yb - 0.4, yb, SILL - 1, SILL + 9, (0.05, 0.05, 0.05)).data.materials[0] = M["black"]
+            box("wiper_blade%d" % s_, xm - 11, xm + 11, yb - 0.5, yb - 0.1, SILL + 1.2, SILL + 2.0, (0.05, 0.05, 0.05)).data.materials[0] = M["black"]
+            vz = SILL + WIN_H_IN + 2
+            box("visor%d" % s_, s_ * (POST / 2 + 4) if s_ > 0 else s_ * (POST / 2 + 24), s_ * (POST / 2 + 24) if s_ > 0 else s_ * (POST / 2 + 4),
+                front_y(s_ * 14, vz) - 3, front_y(s_ * 14, vz) - 2.6, vz - 12, vz, (0.1, 0.1, 0.1)).data.materials[0] = mat_col("visor", (0.05, 0.05, 0.04), 0.2, alpha=0.75)
+    bpy.ops.mesh.primitive_cylinder_add(radius=4 * I, depth=1.2 * I, vertices=24, location=(0, -L * 0.55 * I, (CEIL_C - 0.5) * I))
+    bpy.context.object.data.materials.append(M["dome"])
+    for o in bpy.data.objects:
+        if o not in before:
+            o["furn"] = False
+    before = set(bpy.data.objects)
+
 # ---- lite cab export ----
 if EXPORT:
     import json
@@ -558,11 +804,14 @@ if EXPORT:
     if LHF:
         furn.rotation_euler.z = math.pi
     root.location.z = -1.35          # Blender cabs: floor 1.35 m below the model origin (game frame)
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in bpy.data.objects:
-        if o.type in ("MESH", "EMPTY"):
-            o.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB", use_selection=True, export_apply=True, export_yup=True)
+    if HD:
+        NS["export_glb"](OUT)
+    else:
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in bpy.data.objects:
+            if o.type in ("MESH", "EMPTY"):
+                o.select_set(True)
+        bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB", use_selection=True, export_apply=True, export_yup=True)
     eye_x, eye_back = SEAT_CX, SEAT_FRONT + SEAT_D / 2 - 2
     info = {"eye": [round(eye_x * I, 3), round(EYE_Z * I - 1.35, 3), round(eye_back * I, 3)],
             "cab_len": round(L * I, 3), "outer_len": round((L + T) * I, 3)}

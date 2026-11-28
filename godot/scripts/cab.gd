@@ -1165,17 +1165,19 @@ const GP_LEVERS := {"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
 	"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"]}
 const CAB_SPECS := {
 	"sd70ace:stand": {"path": "res://models/sd70ace_stand.glb", "drop": -0.4, "levers": STAND_LEVERS, "axis": "y",
-		"screens": {"screen0": "eng", "screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
+		"screens": {"screen0": "eng", "screen1": "ptc", "stscreen": "ptc", "cscreen": "ptc"}, "alerter": "alerter",
+		"eye": Vector3(1.016, -0.455, 1.067)},
 	"sd70ace:desktop": {"path": "res://models/sd70ace_desktop.glb", "drop": -0.4, "levers": DESK_LEVERS, "axis": "x",
 		"screens": {"dt_screen0": "eng", "dt_screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
 	"modern:ge": {"path": "res://models/es44ac_ge.glb", "drop": -0.4, "levers": GE_LEVERS, "axis": "y",
-		"screens": {"smart_scr0": "eng", "smart_scr1": "ptc", "wab_scr": "ptc", "cscreen": "ptc"}, "alerter": "desk_btn1"},
+		"screens": {"smart_scr0": "eng", "smart_scr1": "ptc", "wab_scr": "ptc", "cscreen": "ptc"}, "alerter": "desk_btn1",
+		"eye": Vector3(0.914, -0.455, 1.118)},
 	"modern:desktop": {"path": "res://models/es44ac_desktop.glb", "drop": -0.4, "levers": DESK_LEVERS, "axis": "x",
 		"screens": {"dt_screen0": "eng", "dt_screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
 	"classic": {"path": "res://models/gp38_factory.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
-		"screens": {}, "alerter": "st_alerter"},
+		"screens": {}, "alerter": "st_alerter", "eye": Vector3(0.838, -0.705, 1.118), "cab_len": 1.981, "outer_len": 2.057},
 	"classic_lhf": {"path": "res://models/gp38_factory_lhf.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
-		"screens": {}, "alerter": "st_alerter"},
+		"screens": {}, "alerter": "st_alerter", "eye": Vector3(0.838, -0.705, 1.118), "cab_len": 1.981, "outer_len": 2.057},
 }
 ## Lite cabs: built into the app (models_lite/), made from the same approved layout frames as the
 ## HD cabs (tools/cabdesign/blockout.py ... export). Same layout, simpler shapes and flat colours.
