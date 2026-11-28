@@ -5,7 +5,7 @@ from mathutils import Vector, Euler
 
 SRC = open("/home/claude/cabdesign/build_cab.py").read()
 exec(SRC[:SRC.index("# ------------------------------------------------------------------ cab shell")])
-exec(SRC[SRC.index("def seat("):SRC.index("\n\nseat(")])
+exec(SRC[SRC.index("def soft("):SRC.index("\n\nseat(")])
 
 REPAINT = LAYOUT.startswith("repaint")
 LHF = LAYOUT.endswith("lhf")
@@ -298,6 +298,8 @@ arr.count = 1700
 arr.relative_offset_displace = (0, 2.65, 0)
 
 # ------------------------------------------------------------------ world, camera, render (shared)
+exec(SRC[SRC.index("def soft("):SRC.index("def seat(")])
+exec(SRC[SRC.index("def _bake_ao("):SRC.index("# ------------------------------------------------------------------ world, lights, camera")])
 tail = SRC[SRC.index("# ------------------------------------------------------------------ world, lights, camera"):]
 i0, i1 = tail.index("cams = {"), tail.index("cpos, ctarget, fov")
 tail = tail[:i0] + '''cams = {

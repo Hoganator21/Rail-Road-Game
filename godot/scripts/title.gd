@@ -6,7 +6,7 @@ const GAME_TITLE := "HIGH IRON"
 const TAGLINE := "AMERICAN  MAIN  LINE  RAILROADING"
 const LOCO_ORDER := ["modern", "sd70ace", "classic", "classic_lhf"]
 const LOCO_INFO := {
-	"modern": ["GE ES44AC", "4,400 hp  -  AC traction  -  wide cab, desktop controls"],
+	"modern": ["GE ES44AC", "4,400 hp  -  AC traction  -  wide cab, GE control stand"],
 	"sd70ace": ["EMD SD70ACe", "4,300 hp  -  AC traction  -  wide cab, AAR control stand"],
 	"classic": ["EMD GP38-2", "2,000 hp road switcher  -  short hood forward"],
 	"classic_lhf": ["EMD GP38-2  (LHF)", "2,000 hp road switcher  -  long hood forward"],

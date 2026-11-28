@@ -46,7 +46,7 @@ var restrict_timer := 0.0
 var counter_mode := 0           # 0 off, 1 rear-clear countdown, 2 count up
 var counter_d0 := 0.0
 const LOCOS := {
-	"modern": {"te": 430e3, "p": 2.4e6, "db": 300e3, "split": false, "brake": "CCB", "name": "ES44AC"},
+	"modern": {"te": 430e3, "p": 2.4e6, "db": 300e3, "split": true, "brake": "CCB", "name": "ES44AC"},
 	"sd70ace": {"te": 425e3, "p": 2.35e6, "db": 300e3, "split": true, "brake": "CCB", "name": "SD70ACe"},
 	"classic": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2"},
 	"classic_lhf": {"te": 265e3, "p": 1.15e6, "db": 160e3, "split": true, "brake": "26L", "name": "GP38-2 LHF"},

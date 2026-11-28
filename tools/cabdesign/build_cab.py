@@ -722,7 +722,7 @@ arr = tie.modifiers.new("arr", "ARRAY")
 arr.count = 600
 arr.relative_offset_displace = (0, 2.65, 0)
 
-def _bake_ao(img_path, size=1536):
+def _bake_ao(img_path, size=int(__import__("os").environ.get("BAKE_SIZE", "1536"))):
     """Bake ambient occlusion for the whole cab into one atlas on a second UV set (TEXCOORD_1)."""
     objs = [o for o in bpy.data.objects if o.type == "MESH" and len(o.data.polygons) > 0]
     for o in objs:
@@ -861,7 +861,8 @@ def _bake_wear(img_path, size):
 
 def export_glb(path):
     """Interior + shell only, modifiers applied, box-projected textures turned into real UVs."""
-    skip = ("ground", "ballast", "railhead", "Cube", "nose", "deck", "rail_top", "rail_mid", "post")
+    skip = ("ground", "ballast", "railhead", "Cube", "deck", "rail_top", "rail_mid", "rail_h", "post", "short_hood", "long_hood", "number_boards", "bell", "fan", "stack")
+    skip_exact = ("nose", "nose_slope", "nose_headlight")
     for o in list(bpy.data.objects):
         if o.type != "MESH" or o.hide_render:
             continue
@@ -876,7 +877,7 @@ def export_glb(path):
             except Exception:
                 o.modifiers.remove(m)
     for o in list(bpy.data.objects):
-        if o.type != "MESH" or o.hide_render or o.name.startswith(skip):
+        if o.type != "MESH" or o.hide_render or o.name.startswith(skip) or o.name.split(".")[0] in skip_exact:
             bpy.data.objects.remove(o, do_unlink=True)
     for o in bpy.data.objects:
         mat = o.active_material

@@ -31,7 +31,7 @@ col = scene.collection
 _mats = {}
 
 
-def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0):
+def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0, nor=None, rough_img=None, nor_strength=0.6):
     """Box-projected image texture (triplanar-like) for unwrapped design boxes."""
     if name in _mats:
         return _mats[name]
@@ -58,14 +58,34 @@ def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0):
         nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
     else:
         nt.links.new(im.outputs["Color"], bsdf.inputs["Base Color"])
-    # roughness varies with the grime in the texture
-    rr = nt.nodes.new("ShaderNodeMapRange")
-    rr.inputs["To Min"].default_value = rough + 0.12
-    rr.inputs["To Max"].default_value = rough - 0.12
-    nt.links.new(im.outputs["Color"], rr.inputs["Value"])
-    nt.links.new(rr.outputs["Result"], bsdf.inputs["Roughness"])
+    if rough_img:
+        ri = nt.nodes.new("ShaderNodeTexImage")
+        ri.image = bpy.data.images.load(TEX + rough_img, check_existing=True)
+        ri.image.colorspace_settings.name = "Non-Color"
+        ri.projection = "BOX"
+        ri.projection_blend = 0.25
+        nt.links.new(mp.outputs["Vector"], ri.inputs["Vector"])
+        nt.links.new(ri.outputs["Color"], bsdf.inputs["Roughness"])
+    else:
+        # roughness varies with the grime in the texture
+        rr = nt.nodes.new("ShaderNodeMapRange")
+        rr.inputs["To Min"].default_value = rough + 0.12
+        rr.inputs["To Max"].default_value = rough - 0.12
+        nt.links.new(im.outputs["Color"], rr.inputs["Value"])
+        nt.links.new(rr.outputs["Result"], bsdf.inputs["Roughness"])
     bsdf.inputs["Metallic"].default_value = metal
-    if bump > 0:
+    if nor:
+        ni = nt.nodes.new("ShaderNodeTexImage")
+        ni.image = bpy.data.images.load(TEX + nor, check_existing=True)
+        ni.image.colorspace_settings.name = "Non-Color"
+        ni.projection = "BOX"
+        ni.projection_blend = 0.25
+        nt.links.new(mp.outputs["Vector"], ni.inputs["Vector"])
+        nm = nt.nodes.new("ShaderNodeNormalMap")
+        nm.inputs["Strength"].default_value = nor_strength
+        nt.links.new(ni.outputs["Color"], nm.inputs["Color"])
+        nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+    elif bump > 0:
         bp = nt.nodes.new("ShaderNodeBump")
         bp.inputs["Strength"].default_value = bump
         bp.inputs["Distance"].default_value = 0.002
@@ -119,13 +139,13 @@ def mat_img(name, img, rough=0.6, emit=0.0):
 
 TAN = (0.80, 0.71, 0.55)
 M = {}
-M["wall"] = mat_tex("wall", "cab_wall_tan.png", 1.6, 0.62, 0.05, bump=0.15)
-M["ceil"] = mat_tex("ceil", "ceiling_tan.png", 1.4, 0.85, bump=0.25)
-M["stand"] = mat_tex("stand", "stand_brown.png", 1.5, 0.45, 0.25, bump=0.12)
+M["wall"] = mat_tex("wall", "cab_wall_tan.png", 1.6, 0.62, 0.05, nor="pbr/paint_nor.jpg", nor_strength=0.5)
+M["ceil"] = mat_tex("ceil", "ceiling_tan.png", 1.4, 0.85, nor="pbr/paint_nor.jpg", nor_strength=0.4)
+M["stand"] = mat_tex("stand", "stand_brown.png", 1.5, 0.45, 0.25, nor="pbr/paint_nor.jpg", nor_strength=0.6)
 M["console"] = mat_tex("console", "console_black.png", 2.5, 0.5, 0.2)
 M["floor"] = mat_tex("floor", "cab_mat.png", 3.0, 0.9, bump=0.6)
-M["seat"] = mat_tex("seat", "seat_black.png", 3.5, 0.8, bump=0.3, tint=(4.5, 4.5, 4.8))
-M["vinyl"] = mat_col("vinyl", (0.025, 0.025, 0.027), 0.45)
+M["seat"] = mat_tex("seat", "pbr/seat_fabric_diff.jpg", 4.0, 0.85, nor="pbr/seat_fabric_nor.jpg", rough_img="pbr/seat_fabric_rough.jpg", nor_strength=1.0)
+M["vinyl"] = mat_tex("vinyl", "pbr/vinyl_dark_diff.jpg", 3.0, 0.45, nor="pbr/vinyl_nor.jpg", nor_strength=0.8)
 M["rubber"] = mat_col("rubber", (0.012, 0.012, 0.012), 0.75)
 M["chrome"] = mat_col("chrome", (0.85, 0.85, 0.83), 0.12, 1.0)
 M["steel"] = mat_col("steel", (0.45, 0.44, 0.42), 0.35, 0.9)
@@ -347,7 +367,23 @@ for sx in (-1, 1):
     box("grab_mount", (0.05, 0.08, 0.1), (sx * (WELL_X + 0.02), SILL - 0.12, 0.06), M["steel"], 0.01)
 box("center_post", (0.28, TOP - SILL + 0.1, 0.07), (0, (TOP + SILL) / 2, 0.03), M["wall"], 0.015)
 box("sill_shelf", (W - 0.2, 0.03, 0.14), (0, SILL - 0.015, 0.07), M["wall"], 0.008)
-box("back_wall", (W, CEIL - FLOOR, 0.1), (0, (CEIL + FLOOR) / 2, CAB_LEN), M["wall"], 0.0)
+bw = box("back_wall", (W, CEIL - FLOOR, 0.1), (0, (CEIL + FLOOR) / 2, CAB_LEN), M["wall"], 0.0)
+# window behind the conductor and a door (with window) behind the engineer, both looking down the long hood
+RWW, RWH = 0.5, TOP - SILL + 0.1
+RX_C, RX_D = -1.0, 1.02
+RDW, RDT = 0.66, TOP + 0.14
+cut(bw, rounded_rect_cutter("rwin_cut", RWW, RWH, 0.07, 0.4, (RX_C, (TOP + SILL) / 2, CAB_LEN)))
+gasket("rwin_gasket", RWW, RWH, 0.07, (RX_C, (TOP + SILL) / 2, CAB_LEN - 0.03), 0.03, 0.05)
+box("rwin_glass", (RWW + 0.02, RWH + 0.02, 0.012), (RX_C, (TOP + SILL) / 2, CAB_LEN + 0.01), M["glass"], 0.0)
+cut(bw, box("rdoor_cut", (RDW, RDT - FLOOR + 0.05, 0.4), (RX_D, (RDT + FLOOR) / 2 - 0.02, CAB_LEN), M["wall"], 0.0))
+rleaf = box("rdoor", (RDW - 0.03, RDT - FLOOR - 0.02, 0.045), (RX_D, (RDT + FLOOR) / 2, CAB_LEN + 0.015), M["wall"], 0.01)
+cut(rleaf, rounded_rect_cutter("rdoor_wcut", 0.38, RWH, 0.06, 0.3, (RX_D, (TOP + SILL) / 2, CAB_LEN + 0.015)))
+box("rdoor_glass", (0.4, RWH + 0.02, 0.01), (RX_D, (TOP + SILL) / 2, CAB_LEN + 0.02), M["glass"], 0.0)
+gasket("rdoor_gasket", 0.38, RWH, 0.06, (RX_D, (TOP + SILL) / 2, CAB_LEN - 0.012), 0.024, 0.04)
+box("rdoor_handle", (0.035, 0.16, 0.05), (RX_D - RDW / 2 + 0.08, FLOOR + 1.0, CAB_LEN - 0.02), M["chrome"], 0.01)
+box("rdoor_kick", (RDW - 0.1, 0.22, 0.01), (RX_D, FLOOR + 0.13, CAB_LEN - 0.01), M["steel"], 0.004)
+for hy in (FLOOR + 0.3, RDT - 0.2):
+    box("rdoor_hinge", (0.04, 0.12, 0.05), (RX_D + RDW / 2 - 0.03, hy, CAB_LEN - 0.02), M["steel"], 0.008)
 
 # ------------------------------------------------------------------ overhead console (angled face like the photos)
 ov_bot = TOP + 0.06    # strip of wall between the glass and the console
@@ -580,14 +616,14 @@ def ge_desk():
     DESK = -0.56
     DX = 1.19
     box("desk_body", (0.68, DESK - FLOOR, 0.52), (DX, (DESK + FLOOR) / 2, 0.31), M["stand"], 0.03)
-    box("desk_top", (0.72, 0.04, 0.56), (DX, DESK + 0.02, 0.31), M["stand"], 0.012)
+    box("desk_top", (0.72, 0.04, 0.56), (DX, DESK + 0.02, 0.31), M["console"], 0.012)
     a = -0.55
     nrm = (0.0, -math.sin(a), math.cos(a))
     box("display_pod", (0.7, 0.3, 0.1), (DX, DESK + 0.2, 0.12), M["stand"], 0.025, rot_game=(a, 0, 0))
-    for k, (dx, img) in enumerate(((-0.17, "/tmp/cabdesign/scr_eng.png"), (0.17, "/tmp/cabdesign/scr_eng.png"))):
+    for k, (dx, img) in enumerate(((-0.17, "/tmp/cabdesign/scr_eng.png"), (0.17, "/tmp/cabdesign/scr_ptc.png"))):
         c0 = (DX + dx, DESK + 0.2 + nrm[1] * 0.06, 0.12 + nrm[2] * 0.06)
         box("smart_bezel%d" % k, (0.32, 0.27, 0.035), c0, M["black"], 0.014, rot_game=(a, 0, 0))
-        plane("smart_scr%d" % k, 0.26, 0.19, (c0[0], c0[1] + nrm[1] * 0.019 + 0.012, c0[2] + nrm[2] * 0.019 + 0.008), mat_img("scr0", img, 0.2, emit=1.4), rot_game=(a, 0, 0))
+        plane("smart_scr%d" % k, 0.26, 0.19, (c0[0], c0[1] + nrm[1] * 0.019 + 0.012, c0[2] + nrm[2] * 0.019 + 0.008), mat_img("scr%d" % k, img, 0.2, emit=1.4), rot_game=(a, 0, 0))
         plane("smart_keys%d" % k, 0.26, 0.026, (c0[0], c0[1] - 0.105 * math.cos(a) + nrm[1] * 0.019, c0[2] - 0.105 * math.sin(a) + nrm[2] * 0.019), M["fkeys"], rot_game=(a, 0, 0))
     cyl("cup_hole", 0.045, 0.02, (DX, DESK + 0.035, 0.42), M["black"])
     for k, mm in enumerate((M["lcd"], M["alerter"], M["red"])):
@@ -603,7 +639,6 @@ def layout_ge():
     box("ge_body", (0.42, TOPY - FLOOR, 1.0), (SX, (TOPY + FLOOR) / 2, SZ), M["stand"], 0.035)
     box("ge_cap", (0.44, 0.03, 1.02), (SX, TOPY + 0.015, SZ), M["stand"], 0.012)
     FX = SX + 0.21
-    # rear end: radio/keypad up high, CCB brake module below with the red automatic handle
     box("ge_radio", (0.02, 0.16, 0.22), (FX, -0.36, SZ + 0.32), M["black"], 0.008)
     box("ge_radio_lcd", (0.004, 0.035, 0.12), (FX + 0.012, -0.32, SZ + 0.32), M["lcd"], 0.0)
     box("ccb_plate", (0.015, 0.36, 0.22), (FX, -0.72, SZ + 0.32), M["black"], 0.006)
@@ -611,32 +646,24 @@ def layout_ge():
     sphere("ccb_auto_k", 0.022, (FX + 0.15, -0.6, SZ + 0.36), M["red"])
     tube("ccb_ind", (FX + 0.01, -0.84, SZ + 0.3), (FX + 0.13, -0.82, SZ + 0.26), 0.011, M["chrome"])
     sphere("ccb_ind_k", 0.022, (FX + 0.13, -0.82, SZ + 0.26), M["black"])
-    for k in range(3):
-        cyl("ge_knob%d" % k, 0.016, 0.03, (FX + 0.015, -0.98 + k * 0.0, SZ + 0.24 + k * 0.06), M["chrome"], axis="x", bevel=0.003)
-    # handset hanging on the rear end of the stand
     box("handset_cradle", (0.08, 0.22, 0.05), (SX, -0.55, SZ + 0.51), M["black"], 0.01)
     box("handset", (0.05, 0.22, 0.04), (SX, -0.55, SZ + 0.545), M["vinyl"], 0.015)
     for k in range(28):
         t = k / 28.0
         sphere("cord%d" % k, 0.009, (SX + math.sin(t * 60) * 0.016, -0.68 - t * 0.35, SZ + 0.55 + math.cos(t * 60) * 0.016), M["black"])
-    # middle: GE throttle / dynamic brake controller on a blue plate
     box("ge_ctrl", (0.015, 0.42, 0.28), (FX, -0.6, SZ), M["black"], 0.006)
     plane("ge_nameplate", 0.22, 0.05, (FX + 0.009, -0.42, SZ), M["paper"], rot_game=(0, math.pi / 2, 0))
     for k, yy in enumerate((-0.52, -0.68)):
-        q = cyl("ge_quad%d" % k, 0.1, 0.02, (FX + 0.012, yy, SZ - 0.02), BLUE, axis="x", segs=40, bevel=0.004)
+        cyl("ge_quad%d" % k, 0.1, 0.02, (FX + 0.012, yy, SZ - 0.02), BLUE, axis="x", segs=40, bevel=0.004)
         tube("ge_lever%d" % k, (FX + 0.02, yy, SZ - 0.02), (FX + 0.16, yy + 0.02, SZ - 0.08), 0.012, M["chrome"])
         tube("ge_grip%d" % k, (FX + 0.15, yy + 0.02, SZ - 0.075), (FX + 0.22, yy + 0.03, SZ - 0.1), 0.019, M["grip"])
     tube("ge_rev", (FX + 0.02, -0.82, SZ + 0.04), (FX + 0.1, -0.82, SZ + 0.08), 0.012, M["black"])
-    # front end: switches and breakers
     box("ge_sw_plate", (0.015, 0.34, 0.2), (FX, -0.55, SZ - 0.34), M["black"], 0.006)
     plane("ge_sw", 0.18, 0.3, (FX + 0.009, -0.55, SZ - 0.34), M["switches"], rot_game=(0, math.pi / 2, 0))
-    # small PTC display (Wabtec) on top of the front end, turned toward the engineer
-    # Wabtec PTC display on a low bracket at the front corner, turned toward the engineer
     wy = TOPY + 0.09
     box("wab_bracket", (0.06, 0.05, 0.06), (SX + 0.12, TOPY + 0.03, SZ - 0.36), M["cast"], 0.006)
     box("wab_box", (0.07, 0.2, 0.25), (SX + 0.12, wy, SZ - 0.36), M["black"], 0.014, rot_game=(0, -0.9, 0))
-    plane("wab_scr", 0.19, 0.14, (SX + 0.12 + 0.036 * math.cos(-0.9 + math.pi / 2) , wy + 0.01, SZ - 0.36 + 0.036 * math.cos(0.9)), mat_img("scr1", "/tmp/cabdesign/scr_ptc.png", 0.2, emit=1.4), rot_game=(0, math.pi / 2 - 0.9, 0))
-    # stand lamps and labels
+    plane("wab_scr", 0.19, 0.14, (SX + 0.12 + 0.036 * math.cos(-0.9 + math.pi / 2), wy + 0.01, SZ - 0.36 + 0.036 * math.cos(0.9)), mat_img("scr1", "/tmp/cabdesign/scr_ptc.png", 0.2, emit=1.4), rot_game=(0, math.pi / 2 - 0.9, 0))
     for k, lz in enumerate((-0.1, 0.12)):
         box("ge_label%d" % k, (0.004, 0.035, 0.12), (FX + 0.01, -0.86, SZ + lz), M["yellow"], 0.0)
     box("pcs_lamp", (0.012, 0.03, 0.03), (FX + 0.012, -0.36, SZ + 0.1), M["led_red"], 0.004)
@@ -665,54 +692,86 @@ box("c_tray", (0.36, 0.03, 0.42), (-1.32, -0.53, 0.38), M["steel"], 0.006)
 cyl("extinguisher", 0.075, 0.42, (1.25, FLOOR + 0.21, 2.6), M["red"], bevel=0.02)
 
 # ------------------------------------------------------------------ seats
-def seat(name, x, z):
-    base = FLOOR
-    cyl(name + "_post", 0.055, 0.3, (x, base + 0.27, z), M["steel"])
-    cyl(name + "_bellows", 0.1, 0.18, (x, base + 0.1, z), M["rubber"])
-    box(name + "_plate", (0.42, 0.03, 0.42), (x, base + 0.015, z), M["cast"], 0.01)
-    cush = box(name + "_cushion", (0.54, 0.13, 0.5), (x, base + 0.5, z), M["seat"], 0.05)
-    sub = cush.modifiers.new("sub", "SUBSURF")
-    sub.levels = 2
+def soft(name, size, pos, mat, rot=(0, 0, 0), round_=0.3, bend=0.0):
+    """Padded shape: box -> wide bevel -> subdivision, so it reads like foam under fabric."""
+    o = box(name, size, pos, mat, 0.0, rot_game=rot)
+    b = o.modifiers.new("pad", "BEVEL")
+    b.width = min(size) * round_
+    b.segments = 3
+    if bend:
+        d = o.modifiers.new("bend", "SIMPLE_DEFORM")
+        d.deform_method = "BEND"
+        d.deform_axis = "Z"
+        d.angle = bend
+    sub = o.modifiers.new("sub", "SUBSURF")
+    sub.levels = 1
     sub.render_levels = 2
-    bk = box(name + "_back", (0.52, 0.7, 0.14), (x, base + 0.95, z + 0.28), M["seat"], 0.05, rot_game=(-0.16, 0, 0))
-    bk.modifiers.new("sub", "SUBSURF").render_levels = 2
-    hr = box(name + "_head", (0.34, 0.18, 0.12), (x, base + 1.4, z + 0.36), M["seat"], 0.04)
-    hr.modifiers.new("sub", "SUBSURF").render_levels = 2
-    for s in (-1, 1):
-        tube(name + "_arm%d" % s, (x + s * 0.33, base + 0.76, z - 0.18), (x + s * 0.33, base + 0.76, z + 0.18), 0.035, M["vinyl"])
+    for p_ in o.data.polygons:
+        p_.use_smooth = True
+    return o
 
+
+def seat(name, x, z):
+    """Seats Inc. style engineer seat: suspension base, molded cushion with side bolsters,
+    wrap-around backrest with lumbar bolsters, separate headrest on posts, padded armrests."""
+    b = FLOOR
+    # suspension base
+    box(name + "_plate", (0.44, 0.025, 0.44), (x, b + 0.012, z), M["cast"], 0.008)
+    for k in range(5):
+        bpy.ops.mesh.primitive_torus_add(major_radius=0.105 - k * 0.004, minor_radius=0.018, major_segments=24, minor_segments=8, location=g(x, b + 0.05 + k * 0.03, z))
+        finish(bpy.context.active_object, M["rubber"])
+    cyl(name + "_post", 0.05, 0.16, (x, b + 0.27, z), M["steel"], bevel=0.004)
+    box(name + "_swivel", (0.36, 0.035, 0.36), (x, b + 0.36, z), M["cast"], 0.01)
+    for sx in (-1, 1):
+        box(name + "_rail", (0.03, 0.025, 0.44), (x + sx * 0.15, b + 0.39, z), M["steel"], 0.004)
+    box(name + "_lever", (0.05, 0.02, 0.1), (x + 0.24, b + 0.38, z - 0.18), M["black"], 0.006)
+    # seat pan + cushion with raised side bolsters and a waterfall front
+    box(name + "_pan", (0.5, 0.05, 0.48), (x, b + 0.42, z), M["cast"], 0.01)
+    soft(name + "_cushion", (0.44, 0.1, 0.46), (x, b + 0.49, z + 0.01), M["seat"], round_=0.45)
+    for sx in (-1, 1):
+        soft(name + "_bolster%d" % sx, (0.09, 0.12, 0.44), (x + sx * 0.23, b + 0.51, z + 0.01), M["vinyl"], rot=(0, 0, -sx * 0.18), round_=0.45)
+    soft(name + "_front", (0.48, 0.09, 0.08), (x, b + 0.475, z - 0.215), M["vinyl"], round_=0.5)
+    # backrest (reclined, wraps around the shoulders)
+    tilt = -0.17
+    cy, cz = b + 0.9, z + 0.27
+    box(name + "_backshell", (0.5, 0.68, 0.05), (x, cy, cz + 0.06), M["cast"], 0.02, rot_game=(tilt, 0, 0))
+    soft(name + "_back", (0.42, 0.64, 0.1), (x, cy, cz), M["seat"], rot=(tilt, 0, 0), round_=0.4, bend=0.25)
+    for sx in (-1, 1):
+        soft(name + "_lumbar%d" % sx, (0.08, 0.5, 0.13), (x + sx * 0.235, cy - 0.04, cz - 0.02), M["vinyl"], rot=(tilt, sx * 0.25, 0), round_=0.45)
+    # seams down the backrest
+    for sx in (-1, 1):
+        box(name + "_seam%d" % sx, (0.006, 0.58, 0.004), (x + sx * 0.12, cy, cz - 0.052), M["black"], 0.0, rot_game=(tilt, 0, 0))
+    # headrest on two posts
+    for sx in (-1, 1):
+        cyl(name + "_hpost%d" % sx, 0.008, 0.12, (x + sx * 0.08, cy + 0.38, cz + 0.07), M["chrome"])
+    soft(name + "_head", (0.3, 0.17, 0.1), (x, cy + 0.48, cz + 0.08), M["seat"], rot=(tilt, 0, 0), round_=0.45)
+    # padded armrests on hinge brackets
+    for sx in (-1, 1):
+        ax = x + sx * 0.31
+        box(name + "_armbr%d" % sx, (0.03, 0.18, 0.05), (ax, b + 0.66, z + 0.2), M["cast"], 0.008)
+        soft(name + "_arm%d" % sx, (0.075, 0.06, 0.36), (ax, b + 0.75, z + 0.04), M["vinyl"], round_=0.5)
 
 seat("eseat", 1.08, 1.32)
 seat("cseat", -0.95, 1.25)
 seat("cseat2", -0.95, 2.15)
 
-TANL = mat_tex("locker_tan", "cab_wall_tan.png", 1.6, 0.55, 0.05, tint=(1.05, 0.92, 0.78))
+TANL = mat_tex("locker_tan", "cab_wall_tan.png", 1.6, 0.55, 0.05, tint=(1.05, 0.92, 0.78), nor="pbr/paint_nor.jpg", nor_strength=0.5)
 BRK = mat_img("breakers", "/tmp/cabdesign/breakers.png", 0.45)
 LZ = CAB_LEN - 0.2
-box("rear_door", (0.6, 2.0, 0.05), (-1.05, FLOOR + 1.0, CAB_LEN - 0.06), M["wall"], 0.012)
-box("rear_door_glass", (0.36, 0.42, 0.01), (-1.05, 0.0, CAB_LEN - 0.088), M["black"], 0.0)
-box("rear_door_handle", (0.035, 0.16, 0.05), (-0.82, FLOOR + 1.0, CAB_LEN - 0.1), M["chrome"], 0.01)
-for k, lx in enumerate((-0.38, 0.12, 0.62, 1.12)):
-    box("locker%d" % k, (0.48, 1.9, 0.34), (lx, FLOOR + 0.95, LZ), TANL, 0.012)
-    box("locker_seam%d" % k, (0.47, 0.008, 0.006), (lx, FLOOR + 1.1, LZ - 0.172), M["black"], 0.0)
-    box("locker_latch%d" % k, (0.03, 0.12, 0.03), (lx + 0.18, FLOOR + 0.9, LZ - 0.185), M["steel"], 0.006)
-    plane("locker_label%d" % k, 0.14, 0.18, (lx - 0.08, FLOOR + 1.45, LZ - 0.172), M["paper"], rot_game=(0, math.pi, 0))
-plane("brk_panel", 0.42, 0.36, (-0.38, FLOOR + 1.45, LZ - 0.172), BRK, rot_game=(0, math.pi, 0))
-box("ac_grille", (1.0, 0.12, 0.02), (0.37, CEIL - 0.12, LZ - 0.17), M["black"], 0.01)
-# folding jump seat on the lockers (folded up)
-box("jump_frame", (0.42, 0.62, 0.05), (0.62, FLOOR + 0.75, LZ - 0.2), M["cast"], 0.01)
-box("jump_pad", (0.36, 0.5, 0.06), (0.62, FLOOR + 0.78, LZ - 0.25), M["vinyl"], 0.025)
+for k, lx in enumerate((-0.5, -0.06, 0.38)):
+    box("locker%d" % k, (0.42, 1.9, 0.34), (lx, FLOOR + 0.95, LZ), TANL, 0.012)
+    box("locker_seam%d" % k, (0.41, 0.008, 0.006), (lx, FLOOR + 1.1, LZ - 0.172), M["black"], 0.0)
+    box("locker_latch%d" % k, (0.03, 0.12, 0.03), (lx + 0.16, FLOOR + 0.9, LZ - 0.185), M["steel"], 0.006)
+    plane("locker_label%d" % k, 0.12, 0.16, (lx - 0.08, FLOOR + 1.45, LZ - 0.172), M["paper"], rot_game=(0, math.pi, 0))
+plane("brk_panel", 0.38, 0.34, (-0.5, FLOOR + 1.45, LZ - 0.172), BRK, rot_game=(0, math.pi, 0))
+box("ac_grille", (0.9, 0.12, 0.02), (-0.06, CEIL - 0.12, LZ - 0.17), M["black"], 0.01)
+box("jump_frame", (0.38, 0.62, 0.05), (0.38, FLOOR + 0.75, LZ - 0.2), M["cast"], 0.01)
+soft("jump_pad", (0.33, 0.5, 0.06), (0.38, FLOOR + 0.78, LZ - 0.25), M["vinyl"], round_=0.4)
 for sxx in (-1, 1):
-    tube("jump_arm", (0.62 + sxx * 0.22, FLOOR + 0.55, LZ - 0.22), (0.62 + sxx * 0.22, FLOOR + 1.0, LZ - 0.28), 0.012, M["cast"])
-# overhead cab fans and plates
+    tube("jump_arm", (0.38 + sxx * 0.2, FLOOR + 0.55, LZ - 0.22), (0.38 + sxx * 0.2, FLOOR + 1.0, LZ - 0.28), 0.012, M["cast"])
 for fx in (-1.05, 0.95):
     cyl("cab_fan_box", 0.13, 0.08, (fx, TOP + 0.24, 0.42), M["black"], axis="z", segs=4, bevel=0.01).rotation_euler.y = math.pi / 4
     cyl("cab_fan", 0.085, 0.02, (fx, TOP + 0.24, 0.47), M["cast"], axis="z", segs=32)
-    for r in (0.03, 0.055, 0.08):
-        bpy.ops.mesh.primitive_torus_add(major_radius=r, minor_radius=0.004, location=g(fx, TOP + 0.24, 0.485))
-        tr = bpy.context.active_object
-        tr.rotation_euler = (math.pi / 2, 0, 0)
-        finish(tr, M["chrome"])
 for lx in (-0.6, 0.6):
     cyl("spot", 0.045, 0.06, (lx, CEIL - 0.04, 0.75), M["black"], bevel=0.008)
 
@@ -745,6 +804,197 @@ arr = tie.modifiers.new("arr", "ARRAY")
 arr.count = 600
 arr.relative_offset_displace = (0, 2.65, 0)
 
+def _bake_ao(img_path, size=int(__import__("os").environ.get("BAKE_SIZE", "1536"))):
+    """Bake ambient occlusion for the whole cab into one atlas on a second UV set (TEXCOORD_1)."""
+    objs = [o for o in bpy.data.objects if o.type == "MESH" and len(o.data.polygons) > 0]
+    for o in objs:
+        if "lightmap" not in o.data.uv_layers:
+            o.data.uv_layers.new(name="lightmap")
+        o.data.uv_layers.active = o.data.uv_layers["lightmap"]
+        o.data.uv_layers[0].active_render = True
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.002, scale_to_bounds=False)
+    bpy.ops.uv.pack_islands(margin=0.003, rotate=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    img = bpy.data.images.new("cab_ao", size, size, alpha=False)
+    grp = bpy.data.node_groups.get("glTF Material Output")
+    if grp is None:
+        grp = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
+        grp.interface.new_socket(name="Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "lightmap"
+        an = nt.nodes.new("ShaderNodeTexImage")
+        an.image = img
+        an.name = "ao_bake"
+        nt.links.new(uvn.outputs["UV"], an.inputs["Vector"])
+        for n in nt.nodes:
+            n.select = False
+        an.select = True
+        nt.nodes.active = an
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 24
+    scene.cycles.device = "CPU"
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("w")
+    scene.world.light_settings.distance = 0.5
+    import os
+    if os.path.exists(img_path) and os.environ.get("REUSE_AO"):
+        print("REUSING", img_path)
+    else:
+        bpy.ops.object.bake(type="AO", margin=6, use_clear=True)
+        img.filepath_raw = img_path
+        img.file_format = "PNG"
+        img.save()
+    _bake_wear(img_path.replace("_ao.png", "_wear.png"), size)
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        an = nt.nodes.get("ao_bake")
+        if an is None:
+            continue
+        nt.nodes.remove(an)
+    print("BAKED", img_path)
+
+
+def _bake_wear(img_path, size):
+    """R = worn edges, G = grime in corners and crevices, B = large blotchy variation."""
+    import os
+    if os.path.exists(img_path) and os.environ.get("REUSE_AO"):
+        return
+    img = bpy.data.images.new("cab_wear", size, size, alpha=False)
+    saved = {}
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+        if out is None:
+            continue
+        saved[mat.name] = [l.from_socket for l in out.inputs["Surface"].links]
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        bev = nt.nodes.new("ShaderNodeBevel")
+        bev.samples = 8
+        bev.inputs["Radius"].default_value = 0.015
+        dot = nt.nodes.new("ShaderNodeVectorMath")
+        dot.operation = "DOT_PRODUCT"
+        nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+        nt.links.new(bev.outputs["Normal"], dot.inputs[1])
+        edge = nt.nodes.new("ShaderNodeMapRange")
+        edge.inputs["From Min"].default_value = 0.995
+        edge.inputs["From Max"].default_value = 0.85
+        nt.links.new(dot.outputs["Value"], edge.inputs["Value"])
+        ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+        ao.samples = 12
+        ao.inputs["Distance"].default_value = 0.08
+        inv = nt.nodes.new("ShaderNodeMath")
+        inv.operation = "SUBTRACT"
+        inv.inputs[0].default_value = 1.0
+        nt.links.new(ao.outputs["AO"], inv.inputs[1])
+        tc = nt.nodes.new("ShaderNodeTexCoord")
+        nz = nt.nodes.new("ShaderNodeTexNoise")
+        nz.inputs["Scale"].default_value = 4.0
+        nz.inputs["Detail"].default_value = 8.0
+        nt.links.new(tc.outputs["Object"], nz.inputs["Vector"])
+        cc = nt.nodes.new("ShaderNodeCombineColor")
+        nt.links.new(edge.outputs["Result"], cc.inputs[0])
+        nt.links.new(inv.outputs["Value"], cc.inputs[1])
+        nt.links.new(nz.outputs["Fac"], cc.inputs[2])
+        em = nt.nodes.new("ShaderNodeEmission")
+        nt.links.new(cc.outputs["Color"], em.inputs["Color"])
+        nt.links.new(em.outputs["Emission"], out.inputs["Surface"])
+        bn = nt.nodes.new("ShaderNodeTexImage")
+        bn.image = img
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "lightmap"
+        nt.links.new(uvn.outputs["UV"], bn.inputs["Vector"])
+        for n in nt.nodes:
+            n.select = False
+        bn.select = True
+        nt.nodes.active = bn
+        bn.name = "wear_bake"
+    scene.cycles.samples = 16
+    bpy.ops.object.bake(type="EMIT", margin=6, use_clear=True)
+    img.filepath_raw = img_path
+    img.file_format = "PNG"
+    img.save()
+    for mat in bpy.data.materials:
+        if mat.name in saved:
+            nt = mat.node_tree
+            out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+            for l in list(out.inputs["Surface"].links):
+                nt.links.remove(l)
+            for src in saved[mat.name]:
+                nt.links.new(src, out.inputs["Surface"])
+            bn = nt.nodes.get("wear_bake")
+            if bn:
+                nt.nodes.remove(bn)
+    print("BAKED", img_path)
+
+
+def export_glb(path):
+    """Interior + shell only, modifiers applied, box-projected textures turned into real UVs."""
+    skip = ("ground", "ballast", "railhead", "Cube", "deck", "rail_top", "rail_mid", "rail_h", "post", "short_hood", "long_hood", "number_boards", "bell", "fan", "stack")
+    skip_exact = ("nose", "nose_slope", "nose_headlight")
+    for o in list(bpy.data.objects):
+        if o.type != "MESH" or o.hide_render:
+            continue
+        bpy.ops.object.select_all(action="DESELECT")
+        o.hide_viewport = False
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        for m in list(o.modifiers):
+            m.show_viewport = True
+            try:
+                bpy.ops.object.modifier_apply(modifier=m.name)
+            except Exception:
+                o.modifiers.remove(m)
+    for o in list(bpy.data.objects):
+        if o.type != "MESH" or o.hide_render or o.name.startswith(skip) or o.name.split(".")[0] in skip_exact:
+            bpy.data.objects.remove(o, do_unlink=True)
+    for o in bpy.data.objects:
+        mat = o.active_material
+        if mat is None or not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        mp = next((n for n in nt.nodes if n.type == "MAPPING"), None)
+        im = next((n for n in nt.nodes if n.type == "TEX_IMAGE"), None)
+        if mp is None or im is None:
+            continue
+        sc = mp.inputs["Scale"].default_value[0]
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        if not o.data.uv_layers:
+            o.data.uv_layers.new()
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.cube_project(cube_size=1.0 / max(sc, 0.001), scale_to_bounds=False, correct_aspect=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        for n in list(nt.nodes):
+            if n.type in ("MAPPING", "TEX_COORD"):
+                nt.nodes.remove(n)
+        for n in nt.nodes:
+            if n.type == "TEX_IMAGE":
+                n.projection = "FLAT"
+    _bake_ao(path.replace(".glb", "_ao.png"))
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_apply=True, export_yup=True)
+    print("EXPORTED", path)
+
+
 # ------------------------------------------------------------------ world, lights, camera
 world = bpy.data.worlds.new("world")
 scene.world = world
@@ -776,15 +1026,12 @@ cams = {
     "eng": ((1.08, 0.0, 1.15), (0.9, -0.3, -1.0), 72),
     "rear": ((0.0, 0.42, 2.7), (0.0, -0.75, 0.0), 100),
     "plan": ((0.0, 6.0, 1.3), (0.0, 0.0, 1.3), 0),
-    "gestand": ((1.45, -0.25, 1.0), (0.81, -0.62, 0.6), 58),
-    "back": ((0.4, 0.05, 0.6), (0.2, -0.4, 2.8), 88),
-    "photo": ((1.4, 0.5, 2.35), (0.6, -0.6, 0.4), 82),
-    "cond": ((-0.95, 0.0, 1.2), (-0.9, -0.55, -1.0), 78),
     "stand": ((0.86, 0.0, 1.12), (0.25, -0.75, 0.55), 66),
     "wide": ((0.05, 0.5, 2.65), (0.35, -0.75, 0.0), 80),
+    "seatv": ((1.1, -0.05, 0.62), (1.08, -0.7, 1.45), 75),
     "overhead": ((0.86, 0.0, 1.12), (0.4, 0.55, 0.2), 70),
 }
-cpos, ctarget, fov = cams[VIEW]
+cpos, ctarget, fov = cams.get(VIEW, cams["eng"])
 cam_data = bpy.data.cameras.new("cam")
 cam_data.lens_unit = "FOV"
 cam_data.angle = math.radians(max(fov, 1))
@@ -812,8 +1059,11 @@ scene.render.resolution_x = 1280
 scene.render.resolution_y = 720
 scene.view_settings.view_transform = "AgX"
 scene.view_settings.look = "AgX - Medium High Contrast"
-scene.view_settings.exposure = {"rear": 1.7, "plan": 0.6, "eng": 0.9, "back": 1.4, "photo": 1.2, "cond": 1.0, "stand": 1.5, "gestand": 1.8}.get(VIEW, 0.8)   # expose for the interior like a camera would
+scene.view_settings.exposure = {"rear": 1.7, "plan": 0.6, "eng": 0.9, "seatv": 2.0}.get(VIEW, 0.8)   # expose for the interior like a camera would
 scene.render.filepath = OUT + "_es44_" + LAYOUT + "_" + VIEW + ".png"
+if VIEW == "export":
+    export_glb(OUT)
+    raise SystemExit(0)
 bpy.ops.wm.save_as_mainfile(filepath="/home/claude/cabdesign/es44_cab.blend")
 bpy.ops.render.render(write_still=True)
 print("RENDERED", scene.render.filepath)

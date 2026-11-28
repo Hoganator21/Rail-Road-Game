@@ -365,6 +365,10 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> 
 	_vp_tex.clear()
 	lever_db = null
 	var L := Node3D.new()
+	model_interior = false
+	if (kind == "classic" or kind == "classic_lhf") and not exterior_only:
+		_gp38(L, kind == "classic_lhf")
+		return L
 	if kind == "classic" or kind == "classic_lhf":
 		eye = Vector3(0.78, 0.0, 1.08)
 		if kind == "classic_lhf":
@@ -379,14 +383,14 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> 
 		eye = Vector3(1.08, -0.4, 1.15)
 		_exterior_modern(L)
 		if not exterior_only:
-			_interior_model(L, "res://models/sd70ace_stand.glb")
+			_interior_model(L, CAB_SPECS["sd70ace"])
 		else:
 			_cab_box(L, 3.16, 2.8)
 	else:
-		eye = Vector3(0.86, 0.0, 1.08)
+		eye = Vector3(1.08, -0.4, 1.15)
 		_exterior_modern(L)
 		if not exterior_only:
-			_interior_modern(L)
+			_interior_model(L, CAB_SPECS["modern"])
 		else:
 			_cab_box(L, 3.16, 2.75)
 	return L
@@ -423,7 +427,7 @@ func _long_hood(L: Node, deck_y: float, hood_w: float, r_h: float = 1.65) -> voi
 		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
 
 func _exterior_modern(L: Node) -> void:
-	if model == "sd70ace":
+	if model == "sd70ace" or model == "modern":
 		_exterior_sd70(L)
 		return
 	var deck_y := -2.05
@@ -442,6 +446,45 @@ func _exterior_modern(L: Node) -> void:
 	_running_gear(L, deck_y, 4.8, 6.4, 3, 5.6)
 	_railings(L, deck_y, -0.05, -4.05, [-1.52, 1.52], 0.45)
 	_railings(L, deck_y, 2.75, 13.65, [-1.52, 1.52], 0.45)
+
+## GP38-2: the Blender cab plus a matching exterior, built short hood forward. For long hood
+## forward the whole unit (cab, hoods, trucks) is turned around so the long hood leads; the
+## LHF model already has the stand and seats facing its back wall, which then faces forward.
+func _gp38(L: Node, lhf: bool) -> void:
+	const CAB_LEN := 2.3
+	var holder := Node3D.new()
+	L.add_child(holder)
+	_exterior_gp38(holder)
+	_interior_model(holder, CAB_SPECS["classic_lhf" if lhf else "classic"])
+	eye = Vector3(0.8, -0.65, 1.15)
+	if lhf:
+		holder.rotation.y = PI
+		holder.position.z = CAB_LEN
+
+func _exterior_gp38(L: Node) -> void:
+	const CAB_LEN := 2.3
+	var rail := -3.75
+	var deck_y := rail + 1.55
+	var sh_top := -1.12
+	var lh_top := -1.04
+	_deck_and_ends(L, 3.04, 4.6, 13.6, deck_y)
+	var hm: Material = m["hood"]
+	box(L, 1.75, sh_top - deck_y, 2.95, hm, 0, (sh_top + deck_y) / 2.0, -1.56)
+	box(L, 1.77, 0.05, 2.97, m["steel_dark"], 0, sh_top + 0.02, -1.56)
+	box(L, 1.2, 0.18, 0.06, m["black"], 0, sh_top - 0.14, -3.05)
+	for hx in [-0.18, 0.18]:
+		var hl := cyl(L, 0.09, 0.09, 0.04, m["ditch"], Vector3(hx, sh_top - 0.36, -3.06), 14)
+		hl.rotation.x = PI / 2.0
+	cyl(L, 0.1, 0.1, 0.16, m["yellow"], Vector3(-0.45, sh_top + 0.08, -1.2), 12)
+	var lh_len := 13.45 - (CAB_LEN + 0.05)
+	box(L, 1.8, lh_top - deck_y, lh_len, hm, 0, (lh_top + deck_y) / 2.0, CAB_LEN + 0.05 + lh_len / 2.0)
+	box(L, 1.82, 0.05, lh_len, m["steel_dark"], 0, lh_top + 0.02, CAB_LEN + 0.05 + lh_len / 2.0)
+	for z in [CAB_LEN + 8.5, CAB_LEN + 10.3]:
+		cyl(L, 0.55, 0.55, 0.04, m["fan"], Vector3(0, lh_top + 0.05, z), 24)
+	box(L, 0.35, 0.18, 0.8, m["black"], 0, lh_top + 0.09, CAB_LEN + 4.2)
+	_running_gear(L, deck_y, 4.5, 5.1, 2, 4.6)
+	_railings(L, deck_y, -0.05, -4.45, [-1.46, 1.46], 0.45)
+	_railings(L, deck_y, CAB_LEN + 0.15, 13.45, [-1.46, 1.46], 0.45)
 
 ## SD70ACe at the measured heights the Blender cab uses: walkway 72.5 in above the rail,
 ## nose top just under the windshield, long hood top just under the rear cab windows.
@@ -1068,42 +1111,75 @@ func _interior_aar(p: Node) -> void:
 ## The Blender cabs put the eye 3.35 m above the rail (real SD70ACe); the old builder used 3.75.
 const MODEL_DROP := -0.4
 
-## Cab interiors designed in Blender (cabdesign/build_cab.py) and exported as glTF.
-## The model uses the same coordinates as the cab builder: front wall at z = 0, eye height y = 0.
-func _interior_model(p: Node, path: String) -> void:
+## Cab interiors designed in Blender (tools/cabdesign) and exported as glTF with baked
+## occlusion + wear maps. Each spec names the model, how far to drop it so its rail height
+## matches the game's (Blender cabs use measured heights), which nodes form each handle,
+## which quads show live screens, and the alerter button.
+const CAB_SPECS := {
+	"sd70ace": {"path": "res://models/sd70ace_stand.glb", "drop": -0.4,
+		"thr": ["throttle_shaft", "throttle_grip"], "db": ["dynbrake_shaft", "dynbrake_knob"],
+		"auto": ["brake0_shaft", "brake0_knob"], "ind": ["brake1_shaft", "brake1_knob"],
+		"screens": {"screen0": "eng", "screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
+	"modern": {"path": "res://models/es44ac_ge.glb", "drop": -0.4,
+		"thr": ["ge_lever0", "ge_grip0"], "db": ["ge_lever1", "ge_grip1"],
+		"auto": ["ccb_auto", "ccb_auto_k"], "ind": ["ccb_ind", "ccb_ind_k"],
+		"screens": {"smart_scr0": "eng", "smart_scr1": "ptc", "wab_scr": "ptc", "cscreen": "ptc"}, "alerter": "desk_btn1"},
+	"classic": {"path": "res://models/gp38_factory.glb", "drop": -0.65,
+		"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
+		"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"],
+		"screens": {}, "alerter": "st_alerter"},
+	"classic_lhf": {"path": "res://models/gp38_factory_lhf.glb", "drop": -0.65,
+		"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
+		"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"],
+		"screens": {}, "alerter": "st_alerter"},
+}
+var model_interior := false
+
+func _interior_model(p: Node, spec: Dictionary) -> void:
+	model_interior = true
+	var path: String = spec["path"]
 	var scene: PackedScene = load(path)
 	var inst: Node3D = scene.instantiate()
-	inst.position.y = MODEL_DROP
+	inst.position.y = spec["drop"]
 	p.add_child(inst)
-	# handles: gather each lever's pieces under a pivot at its base so update() can swing it
-	var levers := {"throttle": Vector3(0.81, -0.5, 0.40), "dynbrake": Vector3(0.81, -0.42, 0.57),
-		"brake0": Vector3(0.91, -0.55, 0.35), "brake1": Vector3(0.91, -0.55, 0.6)}
+	# handles: each one's pieces go under a pivot at the base of its shaft so update() can swing it
 	var piv := {}
-	for key in levers:
-		var pv := pivot(p, levers[key] + Vector3(0, MODEL_DROP, 0))
+	for key in ["thr", "db", "auto", "ind"]:
+		var names: Array = spec[key]
+		var shaft := inst.find_child(names[0], true, false) as MeshInstance3D
+		if shaft == null:
+			continue
+		var st := _xform_to(shaft, p)
+		var base := st * Vector3(0.0, shaft.get_aabb().position.y, 0.0)
+		var pv := pivot(p, base)
 		piv[key] = pv
-		for n in inst.find_children(key + "_*", "Node3D", true, false):
+		for nm in names:
+			var n := inst.find_child(nm, true, false) as Node3D
+			if n == null:
+				continue
 			var t := _xform_to(n, p)
 			n.get_parent().remove_child(n)
 			pv.add_child(n)
 			n.transform = pv.transform.affine_inverse() * t
-	lever_thr = piv["throttle"]
-	lever_db = piv["dynbrake"]
-	lever_auto = piv["brake0"]
-	lever_ind = piv["brake1"]
+	lever_thr = piv.get("thr")
+	lever_db = piv.get("db") if has_db else null
+	lever_auto = piv.get("auto")
+	lever_ind = piv.get("ind")
 	_ao_tex = load(path.replace(".glb", "_ao.png"))
 	_wear_tex = load(path.replace(".glb", "_wear.png")) if ResourceLoader.exists(path.replace(".glb", "_wear.png")) else null
 	_fix_materials(inst)
 	# hand the textured screens over to the live displays
-	for k in ["screen0", "screen1", "cscreen"]:
+	var screens: Dictionary = spec["screens"]
+	for k in screens:
 		var n := inst.find_child(k, true, false)
 		if n is MeshInstance3D:
-			var kind := "eng" if k == "screen0" else "ptc"
 			var mat := StandardMaterial3D.new()
 			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			mat.albedo_texture = _screen_tex(p, kind)
+			mat.albedo_texture = _screen_tex(p, screens[k])
 			n.material_override = mat
-	_pickable(p, Vector3(0.95, -0.47 + MODEL_DROP, 0.5), 0.07, "alerter")
+	var al := inst.find_child(spec["alerter"], true, false) as Node3D
+	if al:
+		_pickable(p, _xform_to(al, p).origin, 0.07, "alerter")
 
 var _ao_tex: Texture2D
 var _wear_tex: Texture2D
@@ -1216,7 +1292,7 @@ func update(s: Dictionary) -> void:
 	var auto_h: float = s["auto_h"]
 	var ind_h: float = s["ind_h"]
 	var em: bool = s["emergency"]
-	if model != "modern":
+	if model != "modern" or model_interior:
 		if lever_thr:
 			lever_thr.rotation.y = float(maxi(lever, 0)) / 8.0 * 0.9
 		if lever_db:
