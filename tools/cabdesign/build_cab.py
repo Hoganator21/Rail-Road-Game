@@ -31,7 +31,7 @@ col = scene.collection
 _mats = {}
 
 
-def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0):
+def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0, nor=None, rough_img=None, nor_strength=0.6):
     """Box-projected image texture (triplanar-like) for unwrapped design boxes."""
     if name in _mats:
         return _mats[name]
@@ -58,14 +58,34 @@ def mat_tex(name, img, scale=1.0, rough=0.7, metal=0.0, tint=None, bump=0.0):
         nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
     else:
         nt.links.new(im.outputs["Color"], bsdf.inputs["Base Color"])
-    # roughness varies with the grime in the texture
-    rr = nt.nodes.new("ShaderNodeMapRange")
-    rr.inputs["To Min"].default_value = rough + 0.12
-    rr.inputs["To Max"].default_value = rough - 0.12
-    nt.links.new(im.outputs["Color"], rr.inputs["Value"])
-    nt.links.new(rr.outputs["Result"], bsdf.inputs["Roughness"])
+    if rough_img:
+        ri = nt.nodes.new("ShaderNodeTexImage")
+        ri.image = bpy.data.images.load(TEX + rough_img, check_existing=True)
+        ri.image.colorspace_settings.name = "Non-Color"
+        ri.projection = "BOX"
+        ri.projection_blend = 0.25
+        nt.links.new(mp.outputs["Vector"], ri.inputs["Vector"])
+        nt.links.new(ri.outputs["Color"], bsdf.inputs["Roughness"])
+    else:
+        # roughness varies with the grime in the texture
+        rr = nt.nodes.new("ShaderNodeMapRange")
+        rr.inputs["To Min"].default_value = rough + 0.12
+        rr.inputs["To Max"].default_value = rough - 0.12
+        nt.links.new(im.outputs["Color"], rr.inputs["Value"])
+        nt.links.new(rr.outputs["Result"], bsdf.inputs["Roughness"])
     bsdf.inputs["Metallic"].default_value = metal
-    if bump > 0:
+    if nor:
+        ni = nt.nodes.new("ShaderNodeTexImage")
+        ni.image = bpy.data.images.load(TEX + nor, check_existing=True)
+        ni.image.colorspace_settings.name = "Non-Color"
+        ni.projection = "BOX"
+        ni.projection_blend = 0.25
+        nt.links.new(mp.outputs["Vector"], ni.inputs["Vector"])
+        nm = nt.nodes.new("ShaderNodeNormalMap")
+        nm.inputs["Strength"].default_value = nor_strength
+        nt.links.new(ni.outputs["Color"], nm.inputs["Color"])
+        nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+    elif bump > 0:
         bp = nt.nodes.new("ShaderNodeBump")
         bp.inputs["Strength"].default_value = bump
         bp.inputs["Distance"].default_value = 0.002
@@ -119,13 +139,13 @@ def mat_img(name, img, rough=0.6, emit=0.0):
 
 TAN = (0.80, 0.71, 0.55)
 M = {}
-M["wall"] = mat_tex("wall", "cab_wall_tan.png", 1.6, 0.62, 0.05, bump=0.15)
-M["ceil"] = mat_tex("ceil", "ceiling_tan.png", 1.4, 0.85, bump=0.25)
-M["stand"] = mat_tex("stand", "stand_brown.png", 1.5, 0.45, 0.25, bump=0.12)
+M["wall"] = mat_tex("wall", "cab_wall_tan.png", 1.6, 0.62, 0.05, nor="pbr/paint_nor.jpg", nor_strength=0.5)
+M["ceil"] = mat_tex("ceil", "ceiling_tan.png", 1.4, 0.85, nor="pbr/paint_nor.jpg", nor_strength=0.4)
+M["stand"] = mat_tex("stand", "stand_brown.png", 1.5, 0.45, 0.25, nor="pbr/paint_nor.jpg", nor_strength=0.6)
 M["console"] = mat_tex("console", "console_black.png", 2.5, 0.5, 0.2)
 M["floor"] = mat_tex("floor", "cab_mat.png", 3.0, 0.9, bump=0.6)
-M["seat"] = mat_tex("seat", "seat_black.png", 3.5, 0.8, bump=0.3, tint=(4.5, 4.5, 4.8))
-M["vinyl"] = mat_col("vinyl", (0.025, 0.025, 0.027), 0.45)
+M["seat"] = mat_tex("seat", "pbr/seat_fabric_diff.jpg", 4.0, 0.85, nor="pbr/seat_fabric_nor.jpg", rough_img="pbr/seat_fabric_rough.jpg", nor_strength=1.0)
+M["vinyl"] = mat_tex("vinyl", "pbr/vinyl_dark_diff.jpg", 3.0, 0.45, nor="pbr/vinyl_nor.jpg", nor_strength=0.8)
 M["rubber"] = mat_col("rubber", (0.012, 0.012, 0.012), 0.75)
 M["chrome"] = mat_col("chrome", (0.85, 0.85, 0.83), 0.12, 1.0)
 M["steel"] = mat_col("steel", (0.45, 0.44, 0.42), 0.35, 0.9)
@@ -312,6 +332,7 @@ for s in (-1, 1):
     cut(sw, c)
     g2 = gasket("sidegasket%d" % s, 1.4, TOP - SIDE_SILL, 0.08, (s * (HW - 0.09), (TOP + SIDE_SILL) / 2, 1.0), 0.03, 0.05)
     g2.rotation_euler = (0, 0, math.pi / 2)
+    bpy.data.objects["sidegasket%d_in" % s].rotation_euler = (0, 0, math.pi / 2)
     box("sideglass%d" % s, (0.012, TOP - SIDE_SILL + 0.02, 1.42), (s * (HW - 0.02), (TOP + SIDE_SILL) / 2, 1.0), M["glass"], 0.0)
     box("sidetrack%d" % s, (0.07, 0.025, 1.45), (s * (HW - 0.12), SIDE_SILL - 0.02, 1.0), M["chrome"], 0.004)
     box("sidelatch%d" % s, (0.03, 0.12, 0.03), (s * (HW - 0.12), (TOP + SIDE_SILL) / 2, 0.32), M["chrome"], 0.005)
@@ -346,7 +367,23 @@ for sx in (-1, 1):
     box("grab_mount", (0.05, 0.08, 0.1), (sx * (WELL_X + 0.02), SILL - 0.12, 0.06), M["steel"], 0.01)
 box("center_post", (0.28, TOP - SILL + 0.1, 0.07), (0, (TOP + SILL) / 2, 0.03), M["wall"], 0.015)
 box("sill_shelf", (W - 0.2, 0.03, 0.14), (0, SILL - 0.015, 0.07), M["wall"], 0.008)
-box("back_wall", (W, CEIL - FLOOR, 0.1), (0, (CEIL + FLOOR) / 2, CAB_LEN), M["wall"], 0.0)
+bw = box("back_wall", (W, CEIL - FLOOR, 0.1), (0, (CEIL + FLOOR) / 2, CAB_LEN), M["wall"], 0.0)
+# window behind the conductor and a door (with window) behind the engineer, both looking down the long hood
+RWW, RWH = 0.5, TOP - SILL + 0.1
+RX_C, RX_D = -1.0, 1.02
+RDW, RDT = 0.66, TOP + 0.14
+cut(bw, rounded_rect_cutter("rwin_cut", RWW, RWH, 0.07, 0.4, (RX_C, (TOP + SILL) / 2, CAB_LEN)))
+gasket("rwin_gasket", RWW, RWH, 0.07, (RX_C, (TOP + SILL) / 2, CAB_LEN - 0.03), 0.03, 0.05)
+box("rwin_glass", (RWW + 0.02, RWH + 0.02, 0.012), (RX_C, (TOP + SILL) / 2, CAB_LEN + 0.01), M["glass"], 0.0)
+cut(bw, box("rdoor_cut", (RDW, RDT - FLOOR + 0.05, 0.4), (RX_D, (RDT + FLOOR) / 2 - 0.02, CAB_LEN), M["wall"], 0.0))
+rleaf = box("rdoor", (RDW - 0.03, RDT - FLOOR - 0.02, 0.045), (RX_D, (RDT + FLOOR) / 2, CAB_LEN + 0.015), M["wall"], 0.01)
+cut(rleaf, rounded_rect_cutter("rdoor_wcut", 0.38, RWH, 0.06, 0.3, (RX_D, (TOP + SILL) / 2, CAB_LEN + 0.015)))
+box("rdoor_glass", (0.4, RWH + 0.02, 0.01), (RX_D, (TOP + SILL) / 2, CAB_LEN + 0.02), M["glass"], 0.0)
+gasket("rdoor_gasket", 0.38, RWH, 0.06, (RX_D, (TOP + SILL) / 2, CAB_LEN - 0.012), 0.024, 0.04)
+box("rdoor_handle", (0.035, 0.16, 0.05), (RX_D - RDW / 2 + 0.08, FLOOR + 1.0, CAB_LEN - 0.02), M["chrome"], 0.01)
+box("rdoor_kick", (RDW - 0.1, 0.22, 0.01), (RX_D, FLOOR + 0.13, CAB_LEN - 0.01), M["steel"], 0.004)
+for hy in (FLOOR + 0.3, RDT - 0.2):
+    box("rdoor_hinge", (0.04, 0.12, 0.05), (RX_D + RDW / 2 - 0.03, hy, CAB_LEN - 0.02), M["steel"], 0.008)
 
 # ------------------------------------------------------------------ overhead console (angled face like the photos)
 ov_bot = TOP + 0.06    # strip of wall between the glass and the console
@@ -643,6 +680,67 @@ arr = tie.modifiers.new("arr", "ARRAY")
 arr.count = 600
 arr.relative_offset_displace = (0, 2.65, 0)
 
+def _bake_ao(img_path, size=1536):
+    """Bake ambient occlusion for the whole cab into one atlas on a second UV set (TEXCOORD_1)."""
+    objs = [o for o in bpy.data.objects if o.type == "MESH" and len(o.data.polygons) > 0]
+    for o in objs:
+        if "lightmap" not in o.data.uv_layers:
+            o.data.uv_layers.new(name="lightmap")
+        o.data.uv_layers.active = o.data.uv_layers["lightmap"]
+        o.data.uv_layers[0].active_render = True
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.002, scale_to_bounds=False)
+    bpy.ops.uv.pack_islands(margin=0.003, rotate=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    img = bpy.data.images.new("cab_ao", size, size, alpha=False)
+    grp = bpy.data.node_groups.get("glTF Material Output")
+    if grp is None:
+        grp = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
+        grp.interface.new_socket(name="Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "lightmap"
+        an = nt.nodes.new("ShaderNodeTexImage")
+        an.image = img
+        an.name = "ao_bake"
+        nt.links.new(uvn.outputs["UV"], an.inputs["Vector"])
+        for n in nt.nodes:
+            n.select = False
+        an.select = True
+        nt.nodes.active = an
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 24
+    scene.cycles.device = "CPU"
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("w")
+    scene.world.light_settings.distance = 0.5
+    import os
+    if os.path.exists(img_path) and os.environ.get("REUSE_AO"):
+        print("REUSING", img_path)
+    else:
+        bpy.ops.object.bake(type="AO", margin=6, use_clear=True)
+        img.filepath_raw = img_path
+        img.file_format = "PNG"
+        img.save()
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        an = nt.nodes.get("ao_bake")
+        if an is None:
+            continue
+        nt.nodes.remove(an)
+    print("BAKED", img_path)
+
+
 def export_glb(path):
     """Interior + shell only, modifiers applied, box-projected textures turned into real UVs."""
     skip = ("ground", "ballast", "railhead", "Cube", "nose", "deck", "rail_top", "rail_mid", "post")
@@ -691,6 +789,7 @@ def export_glb(path):
         for n in nt.nodes:
             if n.type == "TEX_IMAGE":
                 n.projection = "FLAT"
+    _bake_ao(path.replace(".glb", "_ao.png"))
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_apply=True, export_yup=True)
     print("EXPORTED", path)
 

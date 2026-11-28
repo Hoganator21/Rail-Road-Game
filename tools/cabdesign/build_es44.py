@@ -312,6 +312,7 @@ for s in (-1, 1):
     cut(sw, c)
     g2 = gasket("sidegasket%d" % s, 1.4, TOP - SIDE_SILL, 0.08, (s * (HW - 0.09), (TOP + SIDE_SILL) / 2, 1.0), 0.03, 0.05)
     g2.rotation_euler = (0, 0, math.pi / 2)
+    bpy.data.objects["sidegasket%d_in" % s].rotation_euler = (0, 0, math.pi / 2)
     box("sideglass%d" % s, (0.012, TOP - SIDE_SILL + 0.02, 1.42), (s * (HW - 0.02), (TOP + SIDE_SILL) / 2, 1.0), M["glass"], 0.0)
     box("sidetrack%d" % s, (0.07, 0.025, 1.45), (s * (HW - 0.12), SIDE_SILL - 0.02, 1.0), M["chrome"], 0.004)
     box("sidelatch%d" % s, (0.03, 0.12, 0.03), (s * (HW - 0.12), (TOP + SIDE_SILL) / 2, 0.32), M["chrome"], 0.005)

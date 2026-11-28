@@ -1065,6 +1065,8 @@ func _interior_model(p: Node, path: String) -> void:
 	lever_db = piv["dynbrake"]
 	lever_auto = piv["brake0"]
 	lever_ind = piv["brake1"]
+	_ao_tex = load(path.replace(".glb", "_ao.png"))
+	_fix_materials(inst)
 	# hand the textured screens over to the live displays
 	for k in ["screen0", "screen1", "cscreen"]:
 		var n := inst.find_child(k, true, false)
@@ -1075,6 +1077,32 @@ func _interior_model(p: Node, path: String) -> void:
 			mat.albedo_texture = _screen_tex(p, kind)
 			n.material_override = mat
 	_pickable(p, Vector3(0.95, -0.47 + MODEL_DROP, 0.5), 0.07, "alerter")
+
+var _ao_tex: Texture2D
+
+## Glass comes out of glTF opaque; replace it. Let the baked occlusion darken direct light too
+## (corners, under the desks), which is most of what makes the cab read as a real enclosed space.
+func _fix_materials(n: Node) -> void:
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var mat := mi.get_active_material(i)
+			if mat == null:
+				continue
+			if mat.resource_name.begins_with("glass") or mi.name.contains("glass") or mi.name.begins_with("windshield"):
+				mi.set_surface_override_material(i, m["glass"])
+			elif mat is StandardMaterial3D:
+				var sm := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+				if _ao_tex and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2:
+					sm.ao_enabled = true
+					sm.ao_texture = _ao_tex
+					sm.ao_on_uv2 = true
+					sm.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+					sm.ao_light_affect = 0.8
+				sm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+				mi.set_surface_override_material(i, sm)
+	for c in n.get_children():
+		_fix_materials(c)
 
 ## Transform of n relative to ancestor a (works before the nodes are in the scene tree).
 func _xform_to(n: Node3D, a: Node) -> Transform3D:

@@ -149,6 +149,7 @@ var shot_times: Array = []
 var shot_dir: String = ""
 var zoom_times: Array = []
 var consist_override: Dictionary = {}
+var debug_eye_x := INF
 var debug_look := Vector2(INF, 0)   # --look=yaw,pitch holds the view for screenshots
 var jump_to: float = -1.0
 var jump_xing: float = -1.0
@@ -199,6 +200,8 @@ func _ready() -> void:
 		elif a.begins_with("--consist="):
 			var cs := a.substr(10).split(",")
 			consist_override = {"cars": int(cs[0]), "load": cs[1], "units": int(cs[2]), "dpu": cs[3] if cs.size() > 3 else "none"}
+		elif a.begins_with("--eye-x="):
+			debug_eye_x = float(a.substr(8))
 		elif a.begins_with("--look="):
 			var lk := a.substr(7).split(",")
 			debug_look = Vector2(float(lk[0]), float(lk[1]))
@@ -449,7 +452,7 @@ func _build_cab_model() -> void:
 	cab_model = cab_builder.build(loco_model, has_db)
 	var e: Vector3 = cab_builder.eye
 	cab_model.position = Vector3(0.0, EYE_H, -e.z)
-	pivot.position = Vector3(e.x, EYE_H + e.y, 0.0)
+	pivot.position = Vector3(e.x if debug_eye_x == INF else debug_eye_x, EYE_H + e.y, 0.0)
 	cab.add_child(cab_model)
 
 func set_loco(kind: String) -> void:
