@@ -200,6 +200,8 @@ func _ready() -> void:
 		elif a.begins_with("--consist="):
 			var cs := a.substr(10).split(",")
 			consist_override = {"cars": int(cs[0]), "load": cs[1], "units": int(cs[2]), "dpu": cs[3] if cs.size() > 3 else "none"}
+		elif a.begins_with("--layout="):
+			debug_layout = a.substr(9)
 		elif a.begins_with("--eye-x="):
 			debug_eye_x = float(a.substr(8))
 		elif a.begins_with("--look="):
@@ -222,6 +224,9 @@ func _ready() -> void:
 		loco_model = loco_override
 	if not consist_override.is_empty():
 		consist = consist_override
+	packs = preload("res://scripts/packs.gd").new()
+	add_child(packs)
+	packs.mount_all()
 	_make_cab()
 	snd = preload("res://scripts/sound.gd").new()
 	add_child(snd)
@@ -367,7 +372,7 @@ func _apply_loco_spec() -> void:
 	if not LOCOS.has(loco_model):
 		loco_model = "modern"
 	var sp: Dictionary = LOCOS[loco_model]
-	split_db = sp["split"]
+	split_db = sp["split"] and cab_layout() != "desktop"
 	has_db = classic_db if loco_model.begins_with("classic") else true
 	_apply_consist()
 
@@ -449,7 +454,7 @@ func _build_cab_model() -> void:
 	_apply_loco_spec()
 	if cab_model:
 		cab_model.queue_free()
-	cab_model = cab_builder.build(loco_model, has_db)
+	cab_model = cab_builder.build(loco_model, has_db, false, cab_layout())
 	var e: Vector3 = cab_builder.eye
 	cab_model.position = Vector3(0.0, EYE_H, -e.z)
 	pivot.position = Vector3(e.x if debug_eye_x == INF else debug_eye_x, EYE_H + e.y, 0.0)
@@ -1978,13 +1983,40 @@ func _autopilot(delta: float) -> void:
 # ================================================================ title screen, settings, profile, saves
 const RUN_SAVE := "user://run.cfg"
 var title_mode := false
+var packs
 var cine
 var title
 var fps_label: Label
-var settings := {"title_video": true, "vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
+var settings := {"cab_layout": {}, "title_video": true, "vol_master": 1.0, "vol_engine": 0.9, "vol_horn": 1.0, "vol_ambient": 0.9, "fov": 70.0, "fullscreen": false, "show_fps": false}
 var profile := {"name": "Engineer", "runs": 0, "miles": 0.0}
 var run_seed := 0
 var jrng := RandomNumberGenerator.new()
+
+var debug_layout := ""
+func cab_layout() -> String:
+	if debug_layout != "":
+		return debug_layout
+	var d: Dictionary = settings["cab_layout"]
+	var opts: Array = cab_builder.LAYOUTS.get(loco_model, [""])
+	var v: String = d.get(loco_model, opts[0])
+	return v if v in opts else opts[0]
+
+func cycle_cab_layout(dir: int) -> void:
+	var opts: Array = cab_builder.LAYOUTS.get(loco_model, [""])
+	var i := opts.find(cab_layout())
+	var d: Dictionary = settings["cab_layout"]
+	d[loco_model] = opts[(i + dir + opts.size()) % opts.size()]
+	if loco_model.begins_with("classic"):
+		d["classic"] = d[loco_model]
+		d["classic_lhf"] = d[loco_model]
+	_save_best()
+	_build_cab_model()
+	hud.configure_controls()
+
+## Called when a content pack finishes installing, so the HD cab shows up right away.
+func on_pack_installed() -> void:
+	_build_cab_model()
+	hud.configure_controls()
 
 func cab_fov() -> float:
 	return float(settings["fov"])

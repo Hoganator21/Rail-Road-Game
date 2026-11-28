@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "godot/**"
+      - "tools/make_pack_presets.py"
       - ".github/workflows/build-game.yml"
   workflow_dispatch:
 
@@ -51,6 +52,34 @@ jobs:
           cd godot
           godot --headless --export-debug "Android" ../build/android/SwitchChallenge.apk
           test -f ../build/android/SwitchChallenge.apk
+
+      - name: Export content packs (only when this pack version is not published yet)
+        run: |
+          command -v python3 >/dev/null && command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq python3 curl)
+          V=$(grep -oP 'PACK_VERSION := \K[0-9]+' godot/scripts/packs.gd)
+          URL=https://github.com/${{ github.repository }}/releases/download/content-packs
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -L -I $URL/sd70ace_windows_v$V.pck || true)
+          mkdir -p build/packs
+          if [ "$CODE" = "200" ]; then echo "packs v$V already published"; exit 0; fi
+          python3 tools/make_pack_presets.py godot/export_presets.cfg
+          cd godot
+          for P in sd70ace es44ac gp38; do
+            for PL in windows android; do
+              godot --headless --export-pack "Pack $P $PL" ../build/packs/${P}_${PL}_v$V.pck
+              test -f ../build/packs/${P}_${PL}_v$V.pck
+            done
+          done
+          ls -la ../build/packs
+
+      - name: Publish content packs
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: content-packs
+          name: Content packs (HD cabs, scenery)
+          make_latest: false
+          body: Downloadable content for Switch Challenge. The game downloads these itself.
+          files: build/packs/*.pck
+          fail_on_unmatched_files: false
 
       - name: Show build sizes
         run: ls -la build/windows build/android

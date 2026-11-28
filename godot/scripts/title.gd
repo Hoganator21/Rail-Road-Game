@@ -449,6 +449,8 @@ func show_page(p: String, push: bool = true) -> void:
 		"depart":
 			header.text = "SWITCH  CHALLENGE"
 			_loco_rows()
+			if not game.packs.installed(game.packs.pack_for_loco(game.loco_model)):
+				_note("Basic cab  -  get the HD cab under LOCOMOTIVES", 13, Color(1, 0.84, 0.52, 0.8))
 			_gap(4)
 			_choice("CARS", func(): return game.consist["cars"], func(d): game.set_consist("cars", int(game.consist["cars"]) + 10 * d))
 			_choice("LOADING", func(): return str(game.consist["load"]).to_upper(), func(d): _cycle("load", game.LOAD_KINDS, d))
@@ -468,13 +470,31 @@ func show_page(p: String, push: bool = true) -> void:
 			_loco_rows()
 			info_lbl = _note(LOCO_INFO[game.loco_model][1], 15)
 			_gap(4)
-			_note("The diesel shop is coming in the next update.", 13, Color(0.8, 0.8, 0.8, 0.5))
+			_hd_rows()
 			_gap(8)
 			_item("BACK", back, true, 25)
 		"settings":
 			header.text = "SETTINGS"
 			_item("AUDIO", func(): show_page("audio"))
 			_item("DISPLAY", func(): show_page("display"))
+			_item("STORAGE", func(): show_page("storage"))
+			_gap(8)
+			_item("BACK", back, true, 25)
+		"storage":
+			header.text = "STORAGE  -  CONTENT PACKS"
+			var total := 0.0
+			for id in game.packs.PACKS:
+				var nm: String = game.packs.PACKS[id]["name"]
+				if game.packs.installed(id):
+					var mb: float = game.packs.size_mb(id)
+					total += mb
+					var pid: String = id
+					_item("%s   %d MB   -   DELETE" % [nm, int(mb)], func(): game.packs.remove(pid); toast("%s will be removed when you restart." % nm); show_page("storage", false), true, 19)
+				else:
+					var pid2: String = id
+					_item("%s   -   DOWNLOAD" % nm, func(): _start_downloads([pid2]), game.packs.busy_id == "", 19)
+			_gap(4)
+			dl_lbl = _note("Installed: %d MB.  Scenery regions will appear here as they are released." % int(total), 14)
 			_gap(8)
 			_item("BACK", back, true, 25)
 		"audio":
@@ -527,6 +547,51 @@ func show_page(p: String, push: bool = true) -> void:
 			_gap(8)
 			_item("BACK", back, true, 25)
 	_focus_first.call_deferred()
+
+## HD cab status for the selected locomotive, the layout choice, and download buttons.
+var dl_lbl: Label
+var dl_queue: Array = []
+
+func _hd_rows() -> void:
+	var id: String = game.packs.pack_for_loco(game.loco_model)
+	var have: bool = game.packs.installed(id)
+	_choice("CAB LAYOUT", func(): return game.cab_builder.LAYOUT_NAMES.get(game.cab_layout(), "STANDARD"), func(d): game.cycle_cab_layout(d))
+	if have:
+		dl_lbl = _note("HD cab installed", 15, Color(0.6, 1.0, 0.65, 0.9))
+	else:
+		_item("DOWNLOAD HD CAB", func(): _start_downloads([id]), game.packs.busy_id == "", 22)
+		dl_lbl = _note("Using the basic cab until the HD cab is downloaded.", 14, Color(1, 0.84, 0.52, 0.85))
+	var missing: Array = []
+	for pid in game.packs.PACKS:
+		if not game.packs.installed(pid):
+			missing.append(pid)
+	if missing.size() > 1:
+		_item("DOWNLOAD ALL HD CABS", func(): _start_downloads(missing), game.packs.busy_id == "", 20)
+
+func _start_downloads(ids: Array) -> void:
+	if game.packs.busy_id != "":
+		return
+	dl_queue = ids.duplicate()
+	if not game.packs.progress.is_connected(_on_dl_progress):
+		game.packs.progress.connect(_on_dl_progress)
+		game.packs.finished.connect(_on_dl_done)
+	game.packs.download(dl_queue.pop_front())
+
+func _on_dl_progress(id: String, done: int, total: int) -> void:
+	if dl_lbl and is_instance_valid(dl_lbl):
+		var nm: String = game.packs.PACKS[id]["name"]
+		dl_lbl.text = ("Downloading %s   %.1f / %.1f MB" % [nm, done / 1048576.0, total / 1048576.0]) if total > 0 else ("Downloading %s   %.1f MB" % [nm, done / 1048576.0])
+
+func _on_dl_done(id: String, ok: bool, msg: String) -> void:
+	var nm: String = game.packs.PACKS[id]["name"]
+	if ok:
+		game.on_pack_installed()
+	if dl_lbl and is_instance_valid(dl_lbl):
+		dl_lbl.text = "%s: %s" % [nm, msg]
+	if ok and not dl_queue.is_empty():
+		game.packs.download(dl_queue.pop_front())
+	elif visible and (page == "locos" or page == "storage"):
+		show_page.call_deferred(page, false)
 
 func _loco_rows() -> void:
 	_choice("LOCOMOTIVE", func(): return LOCO_INFO[game.loco_model][0], func(d):

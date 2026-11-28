@@ -226,7 +226,7 @@ func gauge(p: Node, mat_key: String, r: float, pos: Vector3, needle_keys: Array,
 	for i in needle_keys.size():
 		var pv := pivot(p, pos + Vector3(0, 0, 0.008 + i * 0.003))
 		box(pv, r * 0.06, r * 0.78, 0.002, _unshaded(needle_cols[i]), 0, r * 0.3, 0)
-		needles[needle_keys[i]] = pv
+		_add_needle_pivot(needle_keys[i], pv)
 	var hub := cyl(p, r * 0.08, r * 0.08, 0.01, m["black"], pos + Vector3(0, 0, 0.016), 10)
 	hub.rotation.x = PI / 2.0
 	quad(p, r * 2.0, r * 2.0, m["gauge_glass"], pos + Vector3(0, 0, 0.02), Vector3.ZERO)
@@ -235,7 +235,36 @@ func set_needle(key: String, value: float, vmax: float) -> void:
 	if not needles.has(key):
 		return
 	var t := clampf(value / vmax, 0.0, 1.0)
-	needles[key].rotation.z = deg_to_rad(225.0 - 270.0 * t) - PI / 2.0
+	for pv in needles[key]:
+		pv.rotation.z = deg_to_rad(225.0 - 270.0 * t) - PI / 2.0
+
+func _add_needle_pivot(key: String, pv: Node3D) -> void:
+	if not needles.has(key):
+		needles[key] = []
+	needles[key].append(pv)
+
+## Live needles on a gauge face from a Blender cab. The face is a disc whose local Y is its
+## normal (glTF Y-up) and whose texture "up" is local -Z.
+const GAUGE_NEEDLES := {"g_speed": [["speed", Color(1, 1, 1)]], "g_er": [["bp", Color(1, 1, 1)], ["er", Color(0.95, 0.15, 0.1)]],
+	"g_mr": [["mr", Color(1, 1, 1)], ["bc", Color(0.95, 0.15, 0.1)]]}
+func _gauge_needles(face: MeshInstance3D, kind: String) -> void:
+	var ab := face.get_aabb()
+	var r := maxf(ab.size.x, ab.size.z) * 0.5
+	var nrm := face.transform.basis.y.normalized()
+	var up := -face.transform.basis.z.normalized()
+	var holder := Node3D.new()
+	holder.transform = Transform3D(Basis(up.cross(nrm).normalized(), up, nrm), face.transform * ab.get_center())
+	face.get_parent().add_child(holder)
+	var k := 0
+	for nd in GAUGE_NEEDLES[kind]:
+		var pv := Node3D.new()
+		pv.position = Vector3(0, 0, 0.004 + k * 0.003)
+		holder.add_child(pv)
+		box(pv, r * 0.06, r * 0.78, 0.002, _unshaded(nd[1]), 0, r * 0.3, 0)
+		_add_needle_pivot(nd[0], pv)
+		k += 1
+	var hub := cyl(holder, r * 0.08, r * 0.08, 0.01, m["black"], Vector3(0, 0, 0.01), 10)
+	hub.rotation.x = PI / 2.0
 
 ## A live screen: a SubViewport drawn onto a quad. Only the first screen of each
 ## kind gets its own viewport; later ones share its picture.
@@ -353,8 +382,11 @@ var pickables: Array = []
 
 var exterior_only := false
 
-func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> Node3D:
+func build(kind: String, dyn_brake: bool = true, outside_only: bool = false, lay: String = "") -> Node3D:
 	exterior_only = outside_only
+	layout = lay if lay != "" else (LAYOUTS[kind][0] if LAYOUTS.has(kind) else "")
+	var spec := hd_spec(kind, layout)
+	hd = not spec.is_empty()
 	model = kind
 	has_db = dyn_brake
 	pickables.clear()
@@ -366,8 +398,8 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> 
 	lever_db = null
 	var L := Node3D.new()
 	model_interior = false
-	if (kind == "classic" or kind == "classic_lhf") and not exterior_only:
-		_gp38(L, kind == "classic_lhf")
+	if (kind == "classic" or kind == "classic_lhf") and not exterior_only and hd:
+		_gp38(L, kind == "classic_lhf", spec)
 		return L
 	if kind == "classic" or kind == "classic_lhf":
 		eye = Vector3(0.78, 0.0, 1.08)
@@ -380,19 +412,23 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> 
 		else:
 			_cab_box(L, 3.02, 2.6)
 	elif kind == "sd70ace":
-		eye = Vector3(1.08, -0.4, 1.15)
+		eye = Vector3(1.08, -0.4, 1.15) if hd else Vector3(0.86, 0.0, 1.12)
 		_exterior_modern(L)
-		if not exterior_only:
-			_interior_model(L, CAB_SPECS["sd70ace"])
-		else:
+		if exterior_only:
 			_cab_box(L, 3.16, 2.8)
-	else:
-		eye = Vector3(1.08, -0.4, 1.15)
-		_exterior_modern(L)
-		if not exterior_only:
-			_interior_model(L, CAB_SPECS["modern"])
+		elif hd:
+			_interior_model(L, spec)
 		else:
+			_interior_aar(L)
+	else:
+		eye = Vector3(1.08, -0.4, 1.15) if hd else Vector3(0.86, 0.0, 1.08)
+		_exterior_modern(L)
+		if exterior_only:
 			_cab_box(L, 3.16, 2.75)
+		elif hd:
+			_interior_model(L, spec)
+		else:
+			_interior_modern(L)
 	return L
 
 ## Trailing units seen from outside only need the cab's outer shell and windows.
@@ -427,7 +463,7 @@ func _long_hood(L: Node, deck_y: float, hood_w: float, r_h: float = 1.65) -> voi
 		cyl(L, 0.58, 0.58, 0.02, m["fan"], Vector3(0, deck_y + r_h + 0.19, z), 24)
 
 func _exterior_modern(L: Node) -> void:
-	if model == "sd70ace" or model == "modern":
+	if (model == "sd70ace" or model == "modern") and hd:
 		_exterior_sd70(L)
 		return
 	var deck_y := -2.05
@@ -450,12 +486,12 @@ func _exterior_modern(L: Node) -> void:
 ## GP38-2: the Blender cab plus a matching exterior, built short hood forward. For long hood
 ## forward the whole unit (cab, hoods, trucks) is turned around so the long hood leads; the
 ## LHF model already has the stand and seats facing its back wall, which then faces forward.
-func _gp38(L: Node, lhf: bool) -> void:
+func _gp38(L: Node, lhf: bool, spec: Dictionary) -> void:
 	const CAB_LEN := 2.3
 	var holder := Node3D.new()
 	L.add_child(holder)
 	_exterior_gp38(holder)
-	_interior_model(holder, CAB_SPECS["classic_lhf" if lhf else "classic"])
+	_interior_model(holder, spec)
 	eye = Vector3(0.8, -0.65, 1.15)
 	if lhf:
 		holder.rotation.y = PI
@@ -1115,25 +1151,46 @@ const MODEL_DROP := -0.4
 ## occlusion + wear maps. Each spec names the model, how far to drop it so its rail height
 ## matches the game's (Blender cabs use measured heights), which nodes form each handle,
 ## which quads show live screens, and the alerter button.
+const STAND_LEVERS := {"thr": ["throttle_shaft", "throttle_grip"], "db": ["dynbrake_shaft", "dynbrake_knob"],
+	"auto": ["brake0_shaft", "brake0_knob"], "ind": ["brake1_shaft", "brake1_knob"]}
+const DESK_LEVERS := {"thr": ["dt_thr", "dt_thr_grip"], "db": [],
+	"auto": ["dt_auto", "dt_auto_k"], "ind": ["dt_ind", "dt_ind_k"]}
+const GE_LEVERS := {"thr": ["ge_lever0", "ge_grip0"], "db": ["ge_lever1", "ge_grip1"],
+	"auto": ["ccb_auto", "ccb_auto_k"], "ind": ["ccb_ind", "ccb_ind_k"]}
+const GP_LEVERS := {"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
+	"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"]}
 const CAB_SPECS := {
-	"sd70ace": {"path": "res://models/sd70ace_stand.glb", "drop": -0.4,
-		"thr": ["throttle_shaft", "throttle_grip"], "db": ["dynbrake_shaft", "dynbrake_knob"],
-		"auto": ["brake0_shaft", "brake0_knob"], "ind": ["brake1_shaft", "brake1_knob"],
+	"sd70ace:stand": {"path": "res://models/sd70ace_stand.glb", "drop": -0.4, "levers": STAND_LEVERS, "axis": "y",
 		"screens": {"screen0": "eng", "screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
-	"modern": {"path": "res://models/es44ac_ge.glb", "drop": -0.4,
-		"thr": ["ge_lever0", "ge_grip0"], "db": ["ge_lever1", "ge_grip1"],
-		"auto": ["ccb_auto", "ccb_auto_k"], "ind": ["ccb_ind", "ccb_ind_k"],
+	"sd70ace:desktop": {"path": "res://models/sd70ace_desktop.glb", "drop": -0.4, "levers": DESK_LEVERS, "axis": "x",
+		"screens": {"dt_screen0": "eng", "dt_screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
+	"modern:ge": {"path": "res://models/es44ac_ge.glb", "drop": -0.4, "levers": GE_LEVERS, "axis": "y",
 		"screens": {"smart_scr0": "eng", "smart_scr1": "ptc", "wab_scr": "ptc", "cscreen": "ptc"}, "alerter": "desk_btn1"},
-	"classic": {"path": "res://models/gp38_factory.glb", "drop": -0.65,
-		"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
-		"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"],
+	"modern:desktop": {"path": "res://models/es44ac_desktop.glb", "drop": -0.4, "levers": DESK_LEVERS, "axis": "x",
+		"screens": {"dt_screen0": "eng", "dt_screen1": "ptc", "cscreen": "ptc"}, "alerter": "alerter"},
+	"classic": {"path": "res://models/gp38_factory.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
 		"screens": {}, "alerter": "st_alerter"},
-	"classic_lhf": {"path": "res://models/gp38_factory_lhf.glb", "drop": -0.65,
-		"thr": ["st_thr", "st_thr_g"], "db": ["st_db", "st_db_k"],
-		"auto": ["b26_auto", "b26_auto_k"], "ind": ["b26_ind", "b26_ind_k"],
+	"classic_lhf": {"path": "res://models/gp38_factory_lhf.glb", "drop": -0.65, "levers": GP_LEVERS, "axis": "y",
 		"screens": {}, "alerter": "st_alerter"},
 }
+## Cab layouts the player can pick per locomotive (first = default). GP38 options are paint schemes.
+const LAYOUTS := {"sd70ace": ["stand", "desktop"], "modern": ["ge", "desktop"], "classic": ["factory", "repaint"], "classic_lhf": ["factory", "repaint"]}
+const LAYOUT_NAMES := {"stand": "AAR CONTROL STAND", "desktop": "DESKTOP CONSOLE", "ge": "GE CONTROL STAND", "factory": "EMD FACTORY TAN", "repaint": "GREEN REPAINT"}
+var layout := ""
+var lever_axis := "y"
+
+## Spec for this locomotive + layout, or {} if that HD cab isn't installed (then the built-in cab is used).
+func hd_spec(kind: String, lay: String) -> Dictionary:
+	var key := kind if kind.begins_with("classic") else kind + ":" + lay
+	if not CAB_SPECS.has(key):
+		key = kind + ":" + LAYOUTS[kind][0] if LAYOUTS.has(kind) else kind
+	if not CAB_SPECS.has(key):
+		return {}
+	var sp: Dictionary = CAB_SPECS[key]
+	return sp if ResourceLoader.exists(sp["path"]) else {}
+
 var model_interior := false
+var hd := false
 
 func _interior_model(p: Node, spec: Dictionary) -> void:
 	model_interior = true
@@ -1143,9 +1200,13 @@ func _interior_model(p: Node, spec: Dictionary) -> void:
 	inst.position.y = spec["drop"]
 	p.add_child(inst)
 	# handles: each one's pieces go under a pivot at the base of its shaft so update() can swing it
+	lever_axis = spec["axis"]
 	var piv := {}
+	var levers: Dictionary = spec["levers"]
 	for key in ["thr", "db", "auto", "ind"]:
-		var names: Array = spec[key]
+		var names: Array = levers[key]
+		if names.is_empty():
+			continue
 		var shaft := inst.find_child(names[0], true, false) as MeshInstance3D
 		if shaft == null:
 			continue
@@ -1203,9 +1264,20 @@ func _wear_material(sm: StandardMaterial3D) -> ShaderMaterial:
 	var p: Array = _wear_profile(sm.resource_name)
 	var w := ShaderMaterial.new()
 	w.shader = _wear_shader
-	if sm.albedo_texture:
-		w.set_shader_parameter("albedo_tex", sm.albedo_texture)
-	w.set_shader_parameter("albedo_color", sm.albedo_color)
+	var albedo_tex := sm.albedo_texture
+	var albedo_col := sm.albedo_color
+	var nm := sm.resource_name.get_slice(".", 0)
+	if layout == "repaint":
+		# the green repaint reuses the factory model with different paint
+		if nm == "wall":
+			albedo_tex = load("res://textures/cab_wall_green.png")
+		elif nm == "ceil":
+			albedo_tex = load("res://textures/ceiling_green.png")
+		elif nm == "stand":
+			albedo_col = Color(0.22, 0.22, 0.23)
+	if albedo_tex:
+		w.set_shader_parameter("albedo_tex", albedo_tex)
+	w.set_shader_parameter("albedo_color", albedo_col)
 	if sm.normal_enabled and sm.normal_texture:
 		w.set_shader_parameter("normal_tex", sm.normal_texture)
 		w.set_shader_parameter("has_normal", true)
@@ -1232,6 +1304,9 @@ func _fix_materials(n: Node) -> void:
 			var mat := mi.get_active_material(i)
 			if mat == null:
 				continue
+			var mname := mat.resource_name.get_slice(".", 0)
+			if GAUGE_NEEDLES.has(mname):
+				_gauge_needles(mi, mname)
 			if mat.resource_name.begins_with("glass") or mi.name.contains("glass") or mi.name.begins_with("windshield"):
 				mi.set_surface_override_material(i, m["glass"])
 			elif mat is StandardMaterial3D and _wear_tex and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2 and _wear_profile(mat.resource_name).size() > 0:
@@ -1292,7 +1367,7 @@ func update(s: Dictionary) -> void:
 	var auto_h: float = s["auto_h"]
 	var ind_h: float = s["ind_h"]
 	var em: bool = s["emergency"]
-	if model != "modern" or model_interior:
+	if (model != "modern" or model_interior) and lever_axis == "y":
 		if lever_thr:
 			lever_thr.rotation.y = float(maxi(lever, 0)) / 8.0 * 0.9
 		if lever_db:
@@ -1301,6 +1376,14 @@ func update(s: Dictionary) -> void:
 			lever_auto.rotation.y = -(1.25 if em else auto_h * 1.1)
 		if lever_ind:
 			lever_ind.rotation.y = -ind_h * 1.0
+	elif model_interior:
+		# desktop handles push forward (toward the windshield) to notch up / apply
+		if lever_thr:
+			lever_thr.rotation.x = -float(lever) / 9.0 * 0.55
+		if lever_auto:
+			lever_auto.rotation.x = -(1.0 if em else auto_h) * 0.7
+		if lever_ind:
+			lever_ind.rotation.x = -ind_h * 0.6
 	else:
 		if lever_thr:
 			lever_thr.rotation.x = -float(lever) / 9.0 * 0.6
