@@ -60,8 +60,9 @@ if MODEL == "gp38":
     HW = W / 2
     CEIL_C, CEIL_S = 80.0, 74.0
     SILL, RAKE, VEE = 40.0, 0.0, 0.0
-    WIN_W, WIN_H_IN, WIN_H_OUT, WIN_LIFT, WIN_R = 28.0, 22.0, 22.0, 0.0, 3.5
-    POST = 13.0                                 # windshields centred 20.5" either side of centre
+    WIN_W, WIN_H_IN, WIN_H_OUT, WIN_LIFT, WIN_R = 24.0, 22.0, 22.0, 0.0, 3.5
+    POST = 6.0                                  # two centre windshields over the short hood
+    OUT_X0, OUT_X1, OUT_Z0, OUT_Z1 = 35.0, 51.0, 34.0, 64.0   # outer windows beside the nose
     DOOR_C, DOOR_W, WELL_D = 0.0, 24.0, 14.0    # nose hatch, one awkward step down
     SEAT_CX, SEAT_FRONT = HW - 22.0, 37.0
     SW_BOT, SW_TOP = 40.0, 62.0
@@ -207,8 +208,15 @@ dy = vee(DOOR_C)
 box("front_door", DL, DR, dy + 0.5, dy + T, -17, HATCH_TOP, (0.55, 0.5, 0.42))
 if MODEL == "gp38":
     # cab door in the front-left corner, out to the front walkway, with a window like the windshields
-    box("cabdoor", -HW + 1, -HW + 20, -0.6, 0, 0, SILL + WIN_H_IN + 3, (0.6, 0.55, 0.45))
-    box("cabdoor_glass", -HW + 4, -HW + 17, -0.9, -0.6, SILL, SILL + WIN_H_IN, GLASS)
+    # conductor side: cab door with a tall window; engineer side: matching tall window.
+    # Both look out past the side of the short hood along the front walkway.
+    box("cabdoor", -HW + 1, -OUT_X0 + 2, -0.6, 0, 0, OUT_Z1 + 4, (0.6, 0.55, 0.45))
+    for sx in (-1, 1):
+        xa, xb = sorted((OUT_X0 * sx, OUT_X1 * sx))
+        fr = rounded([(xa - 1.2, OUT_Z0 - 1.2), (xb + 1.2, OUT_Z0 - 1.2), (xb + 1.2, OUT_Z1 + 1.2), (xa - 1.2, OUT_Z1 + 1.2)], 4.0)
+        prism("outframe%d" % sx, [(x, -0.7, z) for x, z in fr], (0, -0.2, 0), (0.08, 0.08, 0.08))
+        gl = rounded([(xa, OUT_Z0), (xb, OUT_Z0), (xb, OUT_Z1), (xa, OUT_Z1)], 3.0)
+        prism("outglass%d" % sx, [(x, -1.0, z) for x, z in gl], (0, -0.2, 0), GLASS)
 # raked upper front wall, two halves meeting at the centre post
 ztop = CEIL_C + 1
 up = [(0, SILL), (T, SILL), (T + rake_y(ztop), ztop), (rake_y(ztop), ztop)]
@@ -306,7 +314,7 @@ if MODEL == "gp38":
         rbox("gauge%d" % k, SC, SA, -3 + k * 4.8, 1 + k * 4.8, -4, -3.6, 42, 46.5, (0.85, 0.85, 0.8))
     rbox("radio", SC, SA, -16, -5, -14, -2, 46, 52, (0.08, 0.08, 0.08))
     # heater cabinet ahead of the engineer by the right wall, extinguisher by the hatch
-    box("heater", HW - 19, HW, -16, 0, 0, 28, (0.75, 0.75, 0.72))
+    box("heater", HW - 19, HW, -18, -2, 0, 28, (0.75, 0.75, 0.72))
     box("extinguisher", -18, -14, -18, -14, 0, 16, (0.8, 0.1, 0.1))
     # electrical locker on the back wall, floor to ceiling
     box("locker", -23, 23, -L, -L + 14, 0, CEIL_C - 1, (0.78, 0.76, 0.70))
@@ -358,9 +366,10 @@ if MODEL == "gp38":
     label('COND SEAT', -HW + 22, -30 - SEAT_D / 2)
     label('2nd SEAT', -HW + 22, -54 - SEAT_D / 2, size=2.6)
     label('NOSE HATCH\n1 step down', 0, -7, size=2.6)
-    label('CAB DOOR', -HW + 10.5, -5, size=2.4)
+    label('CAB DOOR\n+ window', -HW + 10.5, -5, size=2.4)
+    label('FRONT\nWINDOW', 43, 5, size=2.2)
     label('ELECTRICAL LOCKER', 0, -L + 7, size=2.8)
-    label('WINDSHIELDS 28" x 22", upright front wall', 0, 9, size=3.2)
+    label('4 front windows: door | 2 over the nose | engineer', 0, 12, size=3.2)
     label('EMD GP38-2   INSIDE WIDTH %d"' % W, 0, -L - 10, size=4)
     label('%d" front to back' % L, -HW - 14, -L / 2, size=3.4, rot=90)
 else:
