@@ -52,3 +52,13 @@ Living notes for future updates. Nothing here is built yet unless marked **(done
 - **Engineer / conductor roles:** move between both seats inside the same shell.
 - **Controls:** notched throttle 1-8, dynamic brake, reverser, 26L/CCB handles with detents and a metal click per notch;
   large drag zones for touch; thumbstick/trigger mapping on controllers (D-pad/buttons **done**).
+
+## Cab realism, round 2 (Nov 27)
+- **Glass:** two-layer windshield: dirt, a wiper-arc mask and streaks that show in low sun; faint reflections of gauges and screens at night.
+- **Night lighting:** dark cab with local warm light: gauge and stand backlight, screen glow spilling on the desk, dim dome light. No flat bright interiors.
+- **Conductor side, fully working:** desk, PTC display, radio handset, emergency brake valve, rear jump seat, correct sightlines; hand off between engineer and conductor.
+- **Cold start and fault recovery:** back-wall breaker panel, isolation switch (start/run), fuel pump and control switches.
+  After a penalty or emergency stop: handle to emergency, then full service, wait for the timer, then recover and reset the PCS. No magic reset key.
+- **MU setup:** trailing units set up and isolated, MU and DPU linked from the cab.
+- **Camera snap views:** gauges, PTC screen, conductor desk, lean out the side window (for switching and shoving), look back at the train.
+- **Controller fine control:** triggers for brake lapping in small steps, detents felt as rumble; snap views on the stick or a hold-button menu.
