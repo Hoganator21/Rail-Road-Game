@@ -376,10 +376,10 @@ func build(kind: String, dyn_brake: bool = true, outside_only: bool = false) -> 
 		else:
 			_cab_box(L, 3.02, 2.6)
 	elif kind == "sd70ace":
-		eye = Vector3(0.86, 0.0, 1.12)
+		eye = Vector3(1.08, -0.4, 1.15)
 		_exterior_modern(L)
 		if not exterior_only:
-			_interior_aar(L)
+			_interior_model(L, "res://models/sd70ace_stand.glb")
 		else:
 			_cab_box(L, 3.16, 2.8)
 	else:
@@ -1038,6 +1038,59 @@ func _interior_aar(p: Node) -> void:
 	_seat(p, -0.86, floor_y, 1.25, m["seat"])
 	_seat(p, -0.86, floor_y, 2.15, m["seat"])
 	_mirrors(p, w / 2.0, -0.05)
+
+## The Blender cabs put the eye 3.35 m above the rail (real SD70ACe); the old builder used 3.75.
+const MODEL_DROP := -0.4
+
+## Cab interiors designed in Blender (cabdesign/build_cab.py) and exported as glTF.
+## The model uses the same coordinates as the cab builder: front wall at z = 0, eye height y = 0.
+func _interior_model(p: Node, path: String) -> void:
+	var scene: PackedScene = load(path)
+	var inst: Node3D = scene.instantiate()
+	inst.position.y = MODEL_DROP
+	p.add_child(inst)
+	# handles: gather each lever's pieces under a pivot at its base so update() can swing it
+	var levers := {"throttle": Vector3(0.81, -0.5, 0.40), "dynbrake": Vector3(0.81, -0.42, 0.57),
+		"brake0": Vector3(0.91, -0.55, 0.35), "brake1": Vector3(0.91, -0.55, 0.6)}
+	var piv := {}
+	for key in levers:
+		var pv := pivot(p, levers[key] + Vector3(0, MODEL_DROP, 0))
+		piv[key] = pv
+		for n in inst.find_children(key + "_*", "Node3D", true, false):
+			var t := _xform_to(n, p)
+			n.get_parent().remove_child(n)
+			pv.add_child(n)
+			n.transform = pv.transform.affine_inverse() * t
+	lever_thr = piv["throttle"]
+	lever_db = piv["dynbrake"]
+	lever_auto = piv["brake0"]
+	lever_ind = piv["brake1"]
+	# hand the textured screens over to the live displays
+	for k in ["screen0", "screen1", "cscreen"]:
+		var n := inst.find_child(k, true, false)
+		if n is MeshInstance3D:
+			var kind := "eng" if k == "screen0" else "ptc"
+			var mat := StandardMaterial3D.new()
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.albedo_texture = _screen_tex(p, kind)
+			n.material_override = mat
+	_pickable(p, Vector3(0.95, -0.47 + MODEL_DROP, 0.5), 0.07, "alerter")
+
+## Transform of n relative to ancestor a (works before the nodes are in the scene tree).
+func _xform_to(n: Node3D, a: Node) -> Transform3D:
+	var t := n.transform
+	var q := n.get_parent()
+	while q != null and q != a:
+		if q is Node3D:
+			t = (q as Node3D).transform * t
+		q = q.get_parent()
+	return t
+
+## The live screen texture for a kind, creating its viewport the first time.
+func _screen_tex(p: Node, kind: String) -> Texture2D:
+	if not _vp_tex.has(kind):
+		screen(p, 0.01, 0.01, Vector3(0, -50, 0), Vector3.ZERO, kind)
+	return _vp_tex[kind]
 
 func _pickable(p: Node, pos: Vector3, r: float, action: String) -> void:
 	var body := StaticBody3D.new()
