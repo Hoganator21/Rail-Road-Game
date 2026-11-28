@@ -35,3 +35,6 @@ Players must read multi-head aspects and comply with both the current signal spe
    * When playing as Engineer, the AI Conductor calls out every wayside signal across the cab ("Clear signal, Milepost 14!", "Approach—30 MPH, coming down!") and requires the Engineer to repeat/acknowledge restrictive aspects (mirroring real-world crew resource management).
    * When playing as Conductor, the player calls out the wayside signals to the AI Engineer; failing to call a restrictive signal in time causes the AI Engineer to react late, risking an overspeed penalty or emergency stop.
  * PTC / Alerter Enforcement: On PTC-equipped locomotives (ES44AC, modern SD70s), exceeding the signal's target braking curve triggers an audible predictive enforcement warning on the IFD screen; failing to reduce speed triggers a full-service/emergency PTC penalty brake application.
+
+> **Correction (Nov 27):** the Portsmouth Subdivision branches off the A-Line at **Weldon, NC** and runs as dark territory (track warrants).
+> It is on the corridor. The Weldon junction is where players leave signaled CTC for dark territory.
