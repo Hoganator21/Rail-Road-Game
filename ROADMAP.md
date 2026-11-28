@@ -64,7 +64,7 @@ Living notes for future updates. Nothing here is built yet unless marked **(done
 - **Controller fine control:** triggers for brake lapping in small steps, detents felt as rumble; snap views on the stick or a hold-button menu.
 
 ## Career mode
-Full spec in **design/CAREER.md** (also design/YARD_OPS.md, design/SIGNALS.md, design/TRAFFIC.md): world streaming, 4:1 time compression with automatic real-time dropouts, GIS terrain + signature bridges (James, Appomattox, Weldon/Roanoke), AI economy, career tiers, slack/coupler physics, spur track, 6-axle limits, defect detectors.
+Full spec in **design/CAREER.md** (also design/OVERVIEW.md, design/YARD_OPS.md, design/SIGNALS.md, design/TRAFFIC.md): world streaming, 4:1 time compression with automatic real-time dropouts, GIS terrain + signature bridges (James, Appomattox, Weldon/Roanoke), AI economy, career tiers, slack/coupler physics, spur track, 6-axle limits, defect detectors.
 certifications and service record, coupler/drawbar failures, rough spur track, 6-axle curve limits, wayside defect detectors.
 
 ## Cab design status
